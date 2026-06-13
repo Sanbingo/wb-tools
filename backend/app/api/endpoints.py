@@ -1,17 +1,61 @@
-from fastapi import APIRouter, Depends, Query, Form
+from fastapi import APIRouter, Depends, Query, Form, HTTPException
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, cast, Date
 from datetime import datetime, timedelta
 from typing import Optional
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from passlib.hash import bcrypt
+from jose import jwt, JWTError
+from pydantic import BaseModel
 import io, os, uuid, glob, tempfile
 
 from ..database import get_db
-from ..models import Sale, Order, Stock, DailySummary, SyncLog, UploadedReport
+from ..models import Sale, Order, Stock, DailySummary, SyncLog, UploadedReport, User
 from ..services.wb_service import WBService
 from ..config import settings
 
 router = APIRouter(prefix="/api/v1")
+security = HTTPBearer(auto_error=False)
+
+JWT_SECRET = "wb-tools-secret-key-2024"
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_HOURS = 24
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+def create_token(username: str) -> str:
+    expire = datetime.utcnow() + timedelta(hours=JWT_EXPIRE_HOURS)
+    return jwt.encode({"sub": username, "exp": expire}, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+async def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> str:
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="未登录")
+    try:
+        payload = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return payload["sub"]
+    except JWTError:
+        raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
+
+
+@router.post("/auth/login")
+async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.username == req.username))
+    user = result.scalar_one_or_none()
+    if not user or not bcrypt.verify(req.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="用户名或密码错误")
+    token = create_token(user.username)
+    return {"token": token, "username": user.username}
+
+
+@router.get("/auth/verify")
+async def verify(username: str = Depends(get_current_user)):
+    return {"valid": True, "username": username}
 
 
 # ── Sync ──────────────────────────────────────────────

@@ -1,9 +1,18 @@
-from sqlalchemy import Column, Integer, Float, String, DateTime, Boolean, BigInteger
+from sqlalchemy import Column, Integer, Float, String, DateTime, Boolean, BigInteger, Text
 from datetime import datetime
 from ..database import Base
 
 def _now():
     return datetime.utcnow()
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String(50), unique=True, index=True, nullable=False)
+    password_hash = Column(String(256), nullable=False)
+    created_at = Column(DateTime, default=_now)
+
 
 class Sale(Base):
     __tablename__ = "sales"
