@@ -1297,13 +1297,14 @@ async def process_reports(
             profit_data.append([code, int(qty), avg_price, round(for_pay, 2),
                                 0, avg_log, round(logistics, 2), storage_fee,
                                 cost_per_unit, head_per_unit, cost_total, head_total,
-                                total_sum, after_tax, to_cny])
+                                total_sum, after_tax, to_cny,
+                                round(to_cny - cost_total - head_total, 2)])
 
         ws_profit = wb_out.create_sheet("利润表")
         profit_h = ["品名", "数量", "平均单套售价", "支付金额",
                     "退货金额", "平均单套物流", "物流费", "仓储费",
                     "单套货本", "单套头程", "货本总计", "头程总计",
-                    "一个型号总和", "扣税和手续费后", "汇率转人民币"]
+                    "一个型号总和", "扣税和手续费后", "汇率转人民币", "总利润"]
         ws_profit.append(profit_h)
         for row in profit_data:
             ws_profit.append(row)
