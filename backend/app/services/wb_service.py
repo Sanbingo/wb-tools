@@ -1,4 +1,5 @@
 import httpx
+import asyncio
 from datetime import datetime, timedelta
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +8,25 @@ from ..models import Sale, Order, Stock, DailySummary, SyncLog
 
 WB_STATISTICS_API = "https://statistics-api.wildberries.ru"
 WB_MARKETPLACE_API = "https://marketplace-api.wildberries.ru"
+
+
+async def _request_with_retry(client, method, url, max_retries=5, **kwargs):
+    """Make HTTP request with exponential backoff on 429 rate limits."""
+    for attempt in range(max_retries):
+        resp = await client.request(method, url, **kwargs)
+        if resp.status_code == 429:
+            retry_after = int(resp.headers.get("Retry-After", 2 ** attempt))
+            retry_after = min(retry_after, 30)
+            if attempt < max_retries - 1:
+                await asyncio.sleep(retry_after)
+                continue
+        resp.raise_for_status()
+        return resp
+    raise httpx.HTTPStatusError(
+        f"429 Too Many Requests after {max_retries} retries",
+        request=resp.request,
+        response=resp,
+    )
 
 
 class WBClient:
@@ -19,7 +39,7 @@ class WBClient:
         url = "https://statistics-api.wildberries.ru/api/v5/supplier/reportDetailByPeriod"
         all_data = []
         rrdid = 0
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=120) as client:
             while True:
                 params = {
                     "dateFrom": date_from,
@@ -31,8 +51,7 @@ class WBClient:
                     "dateTo": date_to,
                     "limit": limit,
                 }
-                resp = await client.get(url, headers=self.headers, params=params)
-                resp.raise_for_status()
+                resp = await _request_with_retry(client, "GET", url, params=params, headers=self.headers)
                 data = resp.json()
                 if not data:
                     break
@@ -42,6 +61,7 @@ class WBClient:
                 rrdid = data[-1].get("rrdid", 0)
                 if not rrdid:
                     break
+                await asyncio.sleep(0.5)  # Small delay between pages
         return all_data
     
     async def get_sales(self, date_from: str, flag: int = 1, limit: int = 1000) -> list:

@@ -662,6 +662,10 @@ async def fetch_and_process(
     
     try:
         raw_data = await service.client.get_report_detail(start_date, end_date)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 429:
+            raise HTTPException(status_code=429, detail=f"WB API 请求过于频繁（429），请稍等 1-2 分钟后重试")
+        raise HTTPException(status_code=502, detail=f"WB API 请求失败: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"WB API 请求失败: {str(e)}")
     
