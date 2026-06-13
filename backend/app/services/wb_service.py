@@ -14,6 +14,36 @@ class WBClient:
         self.token = token
         self.headers = {"Authorization": token}
     
+    async def get_report_detail(self, date_from: str, date_to: str, limit: int = 100000) -> list:
+        """Fetch detailed financial report for a date range (reportDetailByPeriod v5)."""
+        url = "https://statistics-api.wildberries.ru/api/v5/supplier/reportDetailByPeriod"
+        all_data = []
+        rrdid = 0
+        async with httpx.AsyncClient(timeout=60) as client:
+            while True:
+                params = {
+                    "dateFrom": date_from,
+                    "dateTo": date_to,
+                    "limit": limit,
+                    "rrdid": rrdid,
+                } if rrdid > 0 else {
+                    "dateFrom": date_from,
+                    "dateTo": date_to,
+                    "limit": limit,
+                }
+                resp = await client.get(url, headers=self.headers, params=params)
+                resp.raise_for_status()
+                data = resp.json()
+                if not data:
+                    break
+                all_data.extend(data)
+                if len(data) < limit:
+                    break
+                rrdid = data[-1].get("rrdid", 0)
+                if not rrdid:
+                    break
+        return all_data
+    
     async def get_sales(self, date_from: str, flag: int = 1, limit: int = 1000) -> list:
         url = f"{WB_STATISTICS_API}/api/v1/supplier/sales"
         params = {"dateFrom": date_from, "flag": flag, "limit": limit}

@@ -613,10 +613,328 @@ async def get_aggregated_reports(
 
 import os
 import uuid
-from fastapi import UploadFile, File, HTTPException
+from fastapi import UploadFile, File, HTTPException, Form
 from openpyxl import load_workbook
 
 UPLOAD_DIR = "/usr/share/nginx/html/uploads/reports/"
+
+# WB API JSON → Excel column mapping for reportDetailByPeriod
+WB_REPORT_FIELD_MAP = {
+    "№": lambda r: str(r.get("gi_id", "")),
+    "номер поставки": lambda r: str(r.get("gi_box_type_name", "")),
+    "предмет": lambda r: r.get("subject", ""),
+    "код номенклатуры": lambda r: str(r.get("nm_id", "")),
+    "бренд": lambda r: r.get("brand_name", ""),
+    "артикул поставщика": lambda r: r.get("sa_name", ""),
+    "название": lambda r: r.get("ts_name", ""),
+    "размер": lambda r: r.get("ts_name", ""),
+    "баркод": lambda r: str(r.get("barcode", "")),
+    "тип документа": lambda r: r.get("doc_type_name", ""),
+    "обоснование для оплаты": lambda r: r.get("operation_type", ""),
+    "дата заказа покупателем": lambda r: (r.get("order_dt") or "")[:10] if r.get("order_dt") else "",
+    "дата продажи": lambda r: (r.get("sale_dt") or "")[:10] if r.get("sale_dt") else "",
+    "кол-во": lambda r: r.get("quantity", 0),
+    "цена розничная": lambda r: r.get("retail_price", 0),
+    "вайлдберриз реализовал товар (пр)": lambda r: r.get("retail_amount", 0),
+    "к перечислению продавцу за реализованный товар": lambda r: r.get("ppvz_for_pay", 0),
+    "услуги по доставке товара покупателю": lambda r: r.get("delivery_rub", 0),
+    "количество доставок": lambda r: r.get("delivery_amount", 0),
+    "количество возврата": lambda r: r.get("return_amount", 0),
+    "вознаграждение с продаж до вычета услуг поверенного, без ндс": lambda r: r.get("ppvz_vw", 0),
+    "хранение": lambda r: r.get("storage_fee", 0),
+    "штрафы": lambda r: r.get("penalty", 0),
+    "удержания": lambda r: r.get("additional_payment", 0),
+    "возмещение за выдачу и возврат товаров на пвз": lambda r: r.get("rebill_logistic_cost", 0),
+}
+
+
+@router.post("/reports/fetch-auto")
+async def fetch_and_process(
+    start_date: str = Form(...),
+    end_date: str = Form(...),
+    exchange_rate: float = Form(12.5),
+    tax_rate: float = Form(12),
+    fee_rate: float = Form(7),
+    db: AsyncSession = Depends(get_db),
+):
+    """Fetch WB report for date range via API, convert to Excel, process into profit table."""
+    service = WBService(db, settings.wb_api_token)
+    
+    try:
+        raw_data = await service.client.get_report_detail(start_date, end_date)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"WB API 请求失败: {str(e)}")
+    
+    if not raw_data:
+        raise HTTPException(status_code=404, detail=f"{start_date} ~ {end_date} 期间没有报表数据")
+    
+    # Build column headers (Russian order matching WB report export)
+    from openpyxl import Workbook
+    russian_headers = list(WB_REPORT_FIELD_MAP.keys())
+    
+    wb_in = Workbook()
+    ws_in = wb_in.active
+    ws_in.title = "Report"
+    ws_in.append(russian_headers)
+    
+    for record in raw_data:
+        row = []
+        for h in russian_headers:
+            try:
+                val = WB_REPORT_FIELD_MAP[h](record)
+            except Exception:
+                val = ""
+            row.append(val)
+        ws_in.append(row)
+    
+    # Save the generated Excel file
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    source_fname = f"WB_API_{start_date}_{end_date}.xlsx"
+    source_path = os.path.join(UPLOAD_DIR, source_fname)
+    wb_in.save(source_path)
+    
+    # Save as UploadedReport (platform type)
+    report = UploadedReport(
+        filename=source_fname,
+        file_type="platform",
+        period_start=datetime.strptime(start_date, "%Y-%m-%d"),
+        period_end=datetime.strptime(end_date, "%Y-%m-%d"),
+        total_sales=0,
+        total_for_pay=0,
+        records_count=len(raw_data),
+        source="api",
+        file_path=source_path,
+    )
+    db.add(report)
+    await db.commit()
+    await db.refresh(report)
+    
+    # Now process it using the existing logic (reuse process endpoint logic)
+    try:
+        # Read purchase data
+        purchase_data = {}
+        purchase_result = await db.execute(
+            select(UploadedReport)
+            .where(UploadedReport.file_type == "purchase")
+            .where(UploadedReport.file_path.isnot(None))
+            .order_by(desc(UploadedReport.uploaded_at))
+            .limit(1)
+        )
+        purchase_report = purchase_result.scalar_one_or_none()
+        if purchase_report and os.path.exists(purchase_report.file_path):
+            try:
+                wb_p = load_workbook(purchase_report.file_path, data_only=True)
+                ws_p = wb_p.active
+                p_headers = []
+                name_col = cost_col = head_col = -1
+                for row in ws_p.iter_rows(values_only=True):
+                    if not row or not any(row):
+                        continue
+                    if not p_headers:
+                        p_headers = [str(c or "").strip() for c in row]
+                        for i, h in enumerate(p_headers):
+                            hl = h.lower()
+                            if hl == "品名":
+                                name_col = i
+                            elif any(kw in hl for kw in ("单套货本", "货本", "成本", "себестоимость")):
+                                cost_col = i
+                            elif any(kw in hl for kw in ("单套头程", "头程", "运费", "первая миля")):
+                                head_col = i
+                        continue
+                    if name_col < 0:
+                        continue
+                    name_val = str(row[name_col] or "").strip() if name_col < len(row) else ""
+                    if not name_val:
+                        continue
+                    cost_val = float(row[cost_col]) if cost_col >= 0 and cost_col < len(row) and isinstance(row[cost_col], (int, float)) else 0.0
+                    head_val = float(row[head_col]) if head_col >= 0 and head_col < len(row) and isinstance(row[head_col], (int, float)) else 0.0
+                    purchase_data[name_val] = {"cost": cost_val, "head_freight": head_val}
+            except Exception:
+                pass
+    except Exception:
+        purchase_data = {}
+    
+    # Process the Excel file
+    try:
+        wb_in_proc = load_workbook(source_path, data_only=True)
+        raw_sheet = wb_in_proc[wb_in_proc.sheetnames[0]]
+        rows_raw = list(raw_sheet.iter_rows(values_only=True))
+        if not rows_raw:
+            raise HTTPException(status_code=400, detail="生成的工作表为空")
+        
+        raw_headers = [str(c or "").strip().lower() for c in rows_raw[0]]
+        cn_headers = [HEADER_MAP.get(h, h) for h in raw_headers]
+        col_idx = {h: i for i, h in enumerate(cn_headers)}
+        
+        wb_out = Workbook()
+        
+        payment_col = col_idx.get("付款依据", -1)
+        barcode_col = col_idx.get("条形码", -1)
+        product_name_col = col_idx.get("商品名称", -1)
+        qty_col = col_idx.get("数量", -1)
+        for_pay_col = col_idx.get("支付给卖家的已售商品金额", -1)
+        retail_col = col_idx.get("零售价", -1)
+        delivery_qty_col = col_idx.get("交付数量", -1)
+        return_qty_col = col_idx.get("退货数量", -1)
+        logistics_col = col_idx.get("向买家交付货物的服务", -1)
+        storage_col = col_idx.get("仓储费", -1)
+        deduct_col = col_idx.get("扣款", -1)
+        penalty_col = col_idx.get("罚款总额", -1)
+        adj_type_col = col_idx.get("wb物流罚款调整类型", -1)
+        
+        def get_val(row, idx):
+            if idx >= 0 and idx < len(row):
+                return row[idx]
+            return None
+        
+        processed_rows = []
+        for row in rows_raw[1:]:
+            if not row or not any(row):
+                continue
+            new_row = list(row)
+            if payment_col >= 0 and payment_col < len(new_row):
+                orig = str(new_row[payment_col] or "").strip().lower()
+                translated = PAYMENT_TYPE_MAP.get(orig, new_row[payment_col])
+                new_row[payment_col] = translated
+            processed_rows.append(new_row)
+        
+        ws_proc = wb_out.active
+        ws_proc.title = "初处理"
+        ws_proc.append(cn_headers)
+        for row in processed_rows:
+            ws_proc.append(row)
+        style_header(ws_proc)
+        auto_width(ws_proc)
+        
+        categorized = {"销售": [], "物流": [], "仓储": [], "广告": [], "罚款": []}
+        for row in processed_rows:
+            pv = str(get_val(row, payment_col) or "").strip()
+            if pv in categorized:
+                categorized[pv].append(row)
+        
+        for cat_name, cat_rows in categorized.items():
+            if not cat_rows:
+                continue
+            ws = wb_out.create_sheet(cat_name)
+            cols_needed = CATEGORY_COLUMNS[cat_name]
+            ws.append(cols_needed)
+            for row in cat_rows:
+                new_row = [get_val(row, col_idx.get(c, -1)) for c in cols_needed]
+                ws.append(new_row)
+            style_header(ws)
+            auto_width(ws)
+        
+        products = {}
+        for row in processed_rows:
+            pv = str(get_val(row, payment_col) or "").strip()
+            barcode = str(get_val(row, barcode_col) or "")
+            code = extract_product_code(barcode)
+            product_name = str(get_val(row, product_name_col) or "").strip() if product_name_col >= 0 else ""
+            if not code:
+                continue
+            if code not in products:
+                products[code] = {"code": code, "name": product_name, "barcode": barcode, "qty": 0, "for_pay": 0.0,
+                                  "logistics": 0.0, "delivery_qty": 0, "return_qty": 0}
+            p = products[code]
+            if product_name and not p["name"]:
+                p["name"] = product_name
+            if pv == "销售":
+                qty = float(get_val(row, qty_col) or 0)
+                fp = float(get_val(row, for_pay_col) or 0)
+                p["qty"] += qty
+                p["for_pay"] += fp
+            elif pv == "物流":
+                lc = float(get_val(row, logistics_col) or 0)
+                p["logistics"] += lc
+        
+        total_storage = sum(
+            float(get_val(row, storage_col) or 0)
+            for row in processed_rows
+            if str(get_val(row, payment_col) or "").strip() == "仓储"
+        )
+        total_qty = sum(p["qty"] for p in products.values()) or 1
+        storage_per_unit = total_storage / total_qty
+        
+        tax_factor = (1 - tax_rate / 100) * (1 - fee_rate / 100)
+        
+        profit_data = []
+        for code in sorted(products, key=lambda c: products[c]["for_pay"], reverse=True):
+            p = products[code]
+            qty = p["qty"]
+            for_pay = p["for_pay"]
+            logistics = p["logistics"]
+            
+            avg_price = round(for_pay / qty, 2) if qty > 0 else 0
+            avg_log = round(logistics / qty, 2) if qty > 0 else 0
+            storage_fee = round(qty * storage_per_unit, 2)
+            
+            purch = purchase_data.get(code, None) or purchase_data.get(p["name"], None) or {"cost": 0, "head_freight": 0}
+            cost_per_unit = purch["cost"]
+            head_per_unit = purch["head_freight"]
+            cost_total = round(cost_per_unit * qty, 2)
+            head_total = round(head_per_unit * qty, 2)
+            
+            total_sum = round(for_pay - logistics - storage_fee - cost_total - head_total, 2)
+            after_tax = round(total_sum * tax_factor, 2)
+            to_cny = round(after_tax / exchange_rate, 2)
+            
+            total_profit = round(to_cny - cost_total - head_total, 2)
+            profit_data.append([code, int(qty), avg_price, round(for_pay, 2),
+                                0, avg_log, round(logistics, 2), storage_fee,
+                                cost_per_unit, head_per_unit, cost_total, head_total,
+                                total_sum, after_tax, to_cny,
+                                total_profit,
+                                round(total_profit / qty, 2) if qty > 0 else 0])
+        
+        ws_profit = wb_out.create_sheet("利润表")
+        profit_h = ["品名", "数量", "平均单套售价", "支付金额",
+                    "退货金额", "平均单套物流", "物流费", "仓储费",
+                    "单套货本", "单套头程", "货本总计", "头程总计",
+                    "一个型号总和", "扣税和手续费后", "汇率转人民币", "总利润", "单个利润"]
+        ws_profit.append(profit_h)
+        for row in profit_data:
+            ws_profit.append(row)
+        style_header(ws_profit)
+        auto_width(ws_profit)
+        
+        fname = f"WB_API_processed_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        out_path = os.path.join(UPLOAD_DIR, fname)
+        wb_out.save(out_path)
+        
+        # Cleanup source Excel
+        try:
+            if os.path.exists(source_path):
+                os.remove(source_path)
+            await db.delete(report)
+            await db.commit()
+        except Exception:
+            pass
+        
+        return {
+            "status": "success",
+            "filename": fname,
+            "download_url": f"/api/v1/reports/process/download/{fname}",
+            "stats": {
+                "total_rows": len(processed_rows),
+                "sales_rows": len(categorized.get("销售", [])),
+                "logistics_rows": len(categorized.get("物流", [])),
+                "storage_rows": len(categorized.get("仓储", [])),
+                "ad_rows": len(categorized.get("广告", [])),
+                "penalty_rows": len(categorized.get("罚款", [])),
+                "products": len(profit_data),
+                "total_storage": round(total_storage, 2),
+                "exchange_rate": exchange_rate,
+                "tax_rate": tax_rate,
+                "fee_rate": fee_rate,
+                "start_date": start_date,
+                "end_date": end_date,
+                "source_records": len(raw_data),
+            }
+        }
+    
+    except Exception as e:
+        import traceback
+        raise HTTPException(status_code=400, detail=f"处理失败: {str(e)}\n{traceback.format_exc()}")
 
 @router.post("/reports/upload")
 async def upload_report(

@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, Menu, Card, Row, Col, Statistic, Table, Tag, Button, Space, Typography, Spin, message, Empty } from 'antd';
-import { SyncOutlined, DashboardOutlined, ShoppingCartOutlined, InboxOutlined, BarChartOutlined, CloudSyncOutlined } from '@ant-design/icons';
+import { Layout, Menu, Card, Row, Col, Statistic, Table, Tag, Button, Space, Typography, Spin, message, Empty, DatePicker, Alert } from 'antd';
+import { SyncOutlined, DashboardOutlined, ShoppingCartOutlined, InboxOutlined, BarChartOutlined, CloudSyncOutlined, DownloadOutlined } from '@ant-design/icons';
 import { Line, Column, Pie } from '@ant-design/plots';
+
+const { RangePicker } = DatePicker;
 
 const { Header, Sider, Content } = Layout;
 const { Title } = Typography;
@@ -283,6 +285,12 @@ function Stocks() {
 function Reports() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [fetching, setFetching] = useState(false);
+  const [dates, setDates] = useState(null);
+  const [downloadUrl, setDownloadUrl] = useState(null);
+  const [exchangeRate, setExchangeRate] = useState(12.5);
+  const [taxRate, setTaxRate] = useState(12);
+  const [feeRate, setFeeRate] = useState(7);
 
   useEffect(() => {
     Promise.all([
@@ -293,6 +301,48 @@ function Reports() {
       setLoading(false);
     }).catch(() => { message.error('加载失败'); setLoading(false); });
   }, []);
+
+  const handleAutoFetch = async () => {
+    if (!dates || !dates[0] || !dates[1]) {
+      message.warning('请先选择日期范围');
+      return;
+    }
+    setFetching(true);
+    setDownloadUrl(null);
+    const startDate = dates[0].format('YYYY-MM-DD');
+    const endDate = dates[1].format('YYYY-MM-DD');
+    
+    message.loading({ content: `正在从 WB 拉取 ${startDate} ~ ${endDate} 报表...`, key: 'fetch' });
+    try {
+      const formData = new FormData();
+      formData.append('start_date', startDate);
+      formData.append('end_date', endDate);
+      formData.append('exchange_rate', String(exchangeRate));
+      formData.append('tax_rate', String(taxRate));
+      formData.append('fee_rate', String(feeRate));
+      
+      const resp = await fetch(`${API}/reports/fetch-auto`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (!resp.ok) {
+        const err = await resp.json();
+        throw new Error(err.detail || `HTTP ${resp.status}`);
+      }
+      const result = await resp.json();
+      setDownloadUrl(result.download_url);
+      const s = result.stats;
+      message.success({ 
+        content: `✅ 分析完成！共 ${s.total_rows} 条记录，${s.products} 个商品`,
+        key: 'fetch',
+        duration: 5,
+      });
+    } catch (e) {
+      message.error({ content: `❌ 失败: ${e.message}`, key: 'fetch', duration: 5 });
+    } finally {
+      setFetching(false);
+    }
+  };
 
   if (loading) return <Spin size="large" style={{display:'block',margin:'100px auto'}}/>;
   if (!data) return <Empty description="暂无数据" />;
@@ -313,6 +363,78 @@ function Reports() {
   return (
     <div>
       <Title level={4}>📊 财务报表</Title>
+
+      {/* Auto-fetch section */}
+      <Card title="🚀 自动拉取 WB 报表" style={{marginBottom: 16}}>
+        <Space direction="vertical" style={{width: '100%'}} size="middle">
+          <Row gutter={[16,16]} align="middle">
+            <Col xs={24} md={8}>
+              <RangePicker 
+                style={{width: '100%'}}
+                onChange={(d) => setDates(d)}
+                placeholder={['开始日期', '结束日期']}
+              />
+            </Col>
+            <Col xs={12} md={4}>
+              <div>
+                <div style={{fontSize:12,color:'#888',marginBottom:4}}>汇率 (₽→¥)</div>
+                <input 
+                  type="number" step="0.1" value={exchangeRate}
+                  onChange={e => setExchangeRate(Number(e.target.value))}
+                  style={{width:'100%',padding:'4px 8px',border:'1px solid #d9d9d9',borderRadius:4}}
+                />
+              </div>
+            </Col>
+            <Col xs={12} md={4}>
+              <div>
+                <div style={{fontSize:12,color:'#888',marginBottom:4}}>税率 %</div>
+                <input 
+                  type="number" step="0.1" value={taxRate}
+                  onChange={e => setTaxRate(Number(e.target.value))}
+                  style={{width:'100%',padding:'4px 8px',border:'1px solid #d9d9d9',borderRadius:4}}
+                />
+              </div>
+            </Col>
+            <Col xs={12} md={4}>
+              <div>
+                <div style={{fontSize:12,color:'#888',marginBottom:4}}>手续费率 %</div>
+                <input 
+                  type="number" step="0.1" value={feeRate}
+                  onChange={e => setFeeRate(Number(e.target.value))}
+                  style={{width:'100%',padding:'4px 8px',border:'1px solid #d9d9d9',borderRadius:4}}
+                />
+              </div>
+            </Col>
+            <Col xs={12} md={4}>
+              <Button 
+                type="primary" 
+                icon={<DownloadOutlined />}
+                onClick={handleAutoFetch}
+                loading={fetching}
+                size="large"
+                style={{width:'100%', marginTop: 20}}
+              >
+                {fetching ? '拉取中...' : '自动分析'}
+              </Button>
+            </Col>
+          </Row>
+
+          {downloadUrl && (
+            <Alert
+              type="success"
+              showIcon
+              message="分析完成！"
+              description={
+                <div>
+                  <span>利润表已生成，</span>
+                  <a href={downloadUrl} download style={{fontWeight:'bold',fontSize:16}}>点击下载 Excel 文件</a>
+                </div>
+              }
+            />
+          )}
+        </Space>
+      </Card>
+
       <Row gutter={[16,16]}>
         <Col xs={12} lg={8}><Card><Statistic title="30天销售额" value={s.total_sales||0} prefix="₽" precision={2}/></Card></Col>
         <Col xs={12} lg={8}><Card><Statistic title="30天净收入" value={s.net_revenue||0} prefix="₽" precision={2} valueStyle={{color:'#3f8600'}}/></Card></Col>
