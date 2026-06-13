@@ -1238,8 +1238,8 @@ async def process_reports(
             avg_log = round(logistics / qty, 2) if qty > 0 else 0
             storage_fee = round(qty * storage_per_unit, 2)
             
-            # Purchase data (货本 & 头程) — match by product name (品名), fallback to barcode code
-            purch = purchase_data.get(p["name"], None) or purchase_data.get(code, None) or {"cost": 0, "head_freight": 0}
+            # Purchase data (货本 & 头程) — match by barcode code first, fallback to product name
+            purch = purchase_data.get(code, None) or purchase_data.get(p["name"], None) or {"cost": 0, "head_freight": 0}
             cost_per_unit = purch["cost"]
             head_per_unit = purch["head_freight"]
             cost_total = round(cost_per_unit * qty, 2)
@@ -1250,7 +1250,7 @@ async def process_reports(
             after_tax = round(total_sum * tax_factor, 2)
             to_cny = round(after_tax / exchange_rate, 2)
             
-            profit_data.append([p["name"] or code, int(qty), avg_price, round(for_pay, 2),
+            profit_data.append([code, int(qty), avg_price, round(for_pay, 2),
                                 0, avg_log, round(logistics, 2), storage_fee,
                                 cost_per_unit, head_per_unit, cost_total, head_total,
                                 total_sum, after_tax, to_cny])
