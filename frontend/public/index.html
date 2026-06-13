@@ -1,151 +1,213 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-  <title>WB 财务分析系统</title>
-  <link rel="stylesheet" href="https://unpkg.com/antd@5/dist/reset.css"/>
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/dayjs/dayjs.min.js"></script>
-  <script src="https://unpkg.com/@ant-design/charts@1.4.0/dist/antd-charts.min.js"></script>
-  <script src="https://unpkg.com/antd@5/dist/antd.min.js"></script>
-  <script src="https://unpkg.com/@ant-design/icons@5/dist/index.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <meta charset="utf-8">
+  <title>WB 财务分析</title>
+  <script src="/lib/react.min.js"></script>
+  <script src="/lib/react-dom.min.js"></script>
   <style>
-    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-    .ant-layout-sider .ant-layout-sider-children { overflow: auto; }
-    .ant-layout-sider::-webkit-scrollbar { display: none; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #f0f2f5; }
+    .header { background: #001529; color: #fff; padding: 0 24px; display: flex; align-items: center; height: 56px; justify-content: space-between; }
+    .header h1 { font-size: 18px; font-weight: 600; }
+    .container { max-width: 900px; margin: 0 auto; padding: 16px; }
+    .card { background: #fff; border-radius: 8px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,.1); margin-bottom: 16px; }
+    .card-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; color: #333; }
+    .drop-zone { border: 2px dashed #d9d9d9; border-radius: 8px; padding: 28px; text-align: center; background: #fafafa; cursor: pointer; transition: all .3s; }
+    .drop-zone:hover { border-color: #1677ff; background: #f0f5ff; }
+    .drop-icon { font-size: 36px; color: #1677ff; margin-bottom: 4px; }
+    .btn { display: inline-flex; align-items: center; gap: 4px; padding: 8px 20px; border-radius: 6px; border: none; cursor: pointer; font-size: 14px; transition: all .3s; text-decoration: none; white-space: nowrap; }
+    .btn-primary { background: #1677ff; color: #fff; }
+    .btn-primary:hover { background: #4096ff; }
+    .btn-success { background: #52c41a; color: #fff; }
+    .btn-success:hover { background: #73d13d; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    input[type="file"] { display: none; }
+    .upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .file-tag { display: inline-block; background: #f6ffed; border: 1px solid #b7eb8f; border-radius: 4px; padding: 3px 8px; font-size: 12px; margin-top: 8px; color: #52c41a; }
+    .param-grid { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 16px; align-items: end; }
+    .param-label { font-size: 12px; color: #999; margin-bottom: 4px; }
+    .param-input { width: 100%; padding: 6px 10px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 14px; text-align: center; }
+    .param-input:focus { outline: none; border-color: #1677ff; box-shadow: 0 0 0 2px rgba(22,119,255,.1); }
+    .result-box { background: #f6ffed; border: 1px solid #b7eb8f; border-radius: 6px; padding: 14px 16px; margin-top: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .result-box .msg { font-weight: 600; color: #52c41a; }
+    .login-overlay { position: fixed; inset: 0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+    .login-box { background: #fff; border-radius: 12px; padding: 40px 32px; width: 360px; box-shadow: 0 8px 32px rgba(0,0,0,.15); text-align: center; }
+    .login-box h2 { font-size: 20px; margin: 0 0 4px; }
+    .login-box .sub { color: #999; font-size: 13px; margin-bottom: 24px; }
+    .login-box .icon { width: 56px; height: 56px; border-radius: 14px; background: linear-gradient(135deg, #667eea, #764ba2); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; font-size: 28px; color: #fff; }
+    .login-input { width: 100%; padding: 10px 12px; border: 1px solid #d9d9d9; border-radius: 6px; font-size: 14px; margin-bottom: 12px; }
+    .login-input:focus { outline: none; border-color: #1677ff; box-shadow: 0 0 0 2px rgba(22,119,255,.1); }
+    .login-btn { width: 100%; padding: 10px; border: none; border-radius: 6px; font-size: 15px; color: #fff; background: linear-gradient(135deg, #667eea, #764ba2); cursor: pointer; }
+    .login-btn:disabled { opacity: .6; cursor: not-allowed; }
+    .login-err { color: #ff4d4f; font-size: 13px; margin-bottom: 12px; }
+    .logout-btn { color: #fff; font-size: 13px; cursor: pointer; opacity: .7; padding: 4px 8px; }
+    .logout-btn:hover { opacity: 1; }
+    @media (max-width: 768px) { .upload-grid { grid-template-columns: 1fr; } .param-grid { grid-template-columns: 1fr 1fr; } .container { padding: 8px; } .card { padding: 16px; } }
   </style>
 </head>
 <body>
 <div id="root"></div>
-<script type="text/babel">
-const { useState, useEffect } = React;
-const { Layout, Menu, Card, Row, Col, Statistic, Table, Tag, Button, Space, Typography, Spin, message, Empty } = antd;
-const { SyncOutlined, DashboardOutlined, ShoppingCartOutlined, InboxOutlined, BarChartOutlined, CloudSyncOutlined } = icons;
-const { Line, Column, Pie } = charts;
-const { Sider, Content } = Layout;
-const { Title } = Typography;
+<script>
+var h = React.createElement;
+var useState = React.useState, useEffect = React.useEffect, useRef = React.useRef;
+var createRoot = ReactDOM.createRoot;
+var API = '/api/v1';
 
-const API = '/api/v1';
-async function fetchAPI(path) {
-  const resp = await fetch(`${API}${path}`);
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.json();
-}
-async function postAPI(path, body) {
-  const resp = await fetch(`${API}${path}`, { method: 'POST', headers: {'Content-Type': 'application/json'} });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return resp.json();
-}
-function fmt(n) { return (n||0).toLocaleString('ru-RU',{minimumFractionDigits:2,maximumFractionDigits:2}); }
-function fd(d) { return d ? d.split('T')[0] : '-'; }
+// ── Auth helpers ──
+function getToken() { return localStorage.getItem('wb_token'); }
 
-function Dashboard() {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => { fetchAPI('/dashboard').then(d=>{setData(d);setLoading(false)}).catch(()=>{message.error('加载失败');setLoading(false)}); }, []);
-  if (loading) return <Spin size="large" style={{display:'block',margin:'100px auto'}}/>;
-  if (!data) return <Empty description="暂无数据，请先同步"/>;
-  const t = data.today||{}, m = data.this_month||{}, s = data.stocks||{}, trend = data.trend||[];
-  return (<div>
-    <Title level={4}>📊 财务概览</Title>
-    <Row gutter={[16,16]}>
-      <Col xs={24} sm={12} lg={6}><Card><Statistic title="今日销售额" value={t.sales||0} prefix="₽" precision={2} valueStyle={{color:'#cf1322'}}/></Card></Col>
-      <Col xs={24} sm={12} lg={6}><Card><Statistic title="今日实收" value={t.for_pay||0} prefix="₽" precision={2} valueStyle={{color:'#3f8600'}}/></Card></Col>
-      <Col xs={24} sm={12} lg={6}><Card><Statistic title="今日订单" value={t.orders||0} suffix="单"/></Card></Col>
-      <Col xs={24} sm={12} lg={6}><Card><Statistic title="今日佣金" value={t.commission||0} prefix="₽" precision={2} valueStyle={{color:'#faad14'}}/></Card></Col>
-      <Col xs={24} sm={12} lg={6}><Card><Statistic title="本月销售额" value={m.sales||0} prefix="₽" precision={2}/></Card></Col>
-      <Col xs={24} sm={12} lg={6}><Card><Statistic title="本月实收" value={m.for_pay||0} prefix="₽" precision={2} valueStyle={{color:'#3f8600'}}/></Card></Col>
-      <Col xs={24} sm={12} lg={6}><Card><Statistic title="本月订单" value={m.orders||0} suffix="单"/></Card></Col>
-      <Col xs={24} sm={12} lg={6}><Card><Statistic title="库存总值" value={s.total_value||0} prefix="₽" precision={2}/></Card></Col>
-    </Row>
-    <Card title="📈 近7天销售趋势" style={{marginTop:16}}>
-      {trend.length>0?<Line data={trend.map(d=>({date:d.date,sales:d.sales}))} xField="date" yField="sales" smooth point={{size:3}} height={300}/>:<Empty description="暂无趋势数据"/>}
-    </Card>
-    <Card title="⚡ 快速操作" style={{marginTop:16}}>
-      <Space><Button type="primary" icon={<SyncOutlined/>} onClick={async()=>{message.loading({content:'同步中...',key:'sync'});try{const r=await postAPI('/sync/all');message.success({content:\`同步完成！销售:\${r.sales?.new_records||0} 订单:\${r.orders?.new_records||0} 库存:\${r.stocks?.records||0}\`,key:'sync'});setTimeout(()=>window.location.reload(),1000)}catch(e){message.error({content:'同步失败',key:'sync'})}}}>同步所有数据</Button></Space>
-    </Card>
-  </div>);
+function authFetch(url, opts) {
+  opts = opts || {};
+  opts.headers = opts.headers || {};
+  var t = getToken();
+  if (t) opts.headers['Authorization'] = 'Bearer ' + t;
+  return fetch(url, opts).then(function(r){
+    if (r.status === 401) { localStorage.removeItem('wb_token'); localStorage.removeItem('wb_user'); window.location.reload(); }
+    return r;
+  });
 }
 
-function SalesAnalysis() {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(1);
-  const [topProducts, setTopProducts] = useState(null);
-  useEffect(() => { Promise.all([fetchAPI(\`/sales?page=\${page}&page_size=20\`), fetchAPI('/products/top?days=30&limit=10')]).then(([s,t])=>{setData(s);setTopProducts(t);setLoading(false)}).catch(()=>{message.error('加载失败');setLoading(false)}); }, [page]);
-  if (loading) return <Spin size="large" style={{display:'block',margin:'100px auto'}}/>;
-  const cols = [
-    {title:'日期',dataIndex:'date',render:d=>fd(d),width:80},
-    {title:'商品',dataIndex:'supplier_article',ellipsis:true},
-    {title:'总价',dataIndex:'total_price',render:v=>\`₽\${fmt(v)}\`,width:100,sorter:(a,b)=>a.total_price-b.total_price},
-    {title:'实收',dataIndex:'for_pay',render:v=>\`₽\${fmt(v)}\`,width:100,sorter:(a,b)=>a.for_pay-b.for_pay},
-    {title:'仓库',dataIndex:'warehouse_name',width:100},
-  ];
-  const topData = (topProducts?.items||[]).map(p=>({article:(p.article||'').substring(0,12)||String(p.nm_id),revenue:p.revenue}));
-  return (<div>
-    <Title level={4}>📦 销售明细</Title>
-    <Row gutter={16}>
-      <Col xs={24} lg={16}><Card><Table dataSource={data?.items||[]} columns={cols} rowKey="id" size="small" pagination={{current:page,total:data?.total||0,pageSize:20,onChange:p=>setPage(p),showTotal:t=>\`共 \${t} 条\`}}/></Card></Col>
-      <Col xs={24} lg={8}><Card title="🏆 热销 TOP10">{topData.length>0?<Column data={topData} xField="article" yField="revenue" height={400}/>:<Empty description="暂无数据"/>}</Card></Col>
-    </Row>
-  </div>);
+// ── Login Page ──
+function LoginPage(props) {
+  var S = useState(''), user = S[0], setUser = S[1];
+  var S2 = useState(''), pass = S2[0], setPass = S2[1];
+  var S3 = useState(false), loading = S3[0], setLoading = S3[1];
+  var S4 = useState(''), err = S4[0], setErr = S4[1];
+
+  function doLogin() {
+    if (!user || !pass) { setErr('请输入用户名和密码'); return; }
+    setLoading(true); setErr('');
+    fetch(API+'/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,password:pass})})
+      .then(function(r){return r.json().then(function(d){return {status:r.status,data:d};});})
+      .then(function(r){
+        if (r.status !== 200) { setErr(r.data.detail||'登录失败'); setLoading(false); return; }
+        localStorage.setItem('wb_token', r.data.token);
+        localStorage.setItem('wb_user', r.data.username);
+        props.onLogin();
+      }).catch(function(){setErr('网络错误');setLoading(false);});
+  }
+
+  return h('div',{className:'login-overlay'},
+    h('div',{className:'login-box'},
+      h('div',{className:'icon'},'📊'),
+      h('h2',null,'WB 财务分析'),
+      h('div',{className:'sub'},'登录您的账号'),
+      err ? h('div',{className:'login-err'},err) : null,
+      h('input',{className:'login-input',type:'text',placeholder:'用户名',value:user,onChange:function(e){setUser(e.target.value);setErr('');}}),
+      h('input',{className:'login-input',type:'password',placeholder:'密码',value:pass,onChange:function(e){setPass(e.target.value);setErr('');}}),
+      h('button',{className:'login-btn',disabled:loading,onClick:doLogin},loading?'登录中...':'登 录')
+    )
+  );
 }
 
-function Orders() {
-  const [data,setData]=useState(null);const[loading,setLoading]=useState(true);const[page,setPage]=useState(1);const[filter,setFilter]=useState('all');
-  useEffect(()=>{let p=\`/orders?page=\${page}&page_size=20\`;if(filter==='cancelled')p+='&is_cancel=true';else if(filter==='active')p+='&is_cancel=false';fetchAPI(p).then(d=>{setData(d);setLoading(false)}).catch(()=>{message.error('加载失败');setLoading(false)});},[page,filter]);
-  if(loading)return<Spin size="large" style={{display:'block',margin:'100px auto'}}/>;
-  const cols=[{title:'日期',dataIndex:'date',render:d=>fd(d),width:80},{title:'商品',dataIndex:'supplier_article',ellipsis:true},{title:'总价',dataIndex:'total_price',render:v=>\`₽\${fmt(v)}\`,width:100},{title:'成交价',dataIndex:'finished_price',render:v=>\`₽\${fmt(v)}\`,width:100},{title:'状态',dataIndex:'is_cancel',render:v=>v?<Tag color="red">已取消</Tag>:<Tag color="green">有效</Tag>,width:60},{title:'仓库',dataIndex:'warehouse_name',width:100}];
-  return(<div><Title level={4}>📋 订单列表</Title><Card><Space style={{marginBottom:16}}><Button type={filter==='all'?'primary':'default'}onClick={()=>{setFilter('all');setPage(1)}}>全部</Button><Button type={filter==='active'?'primary':'default'}onClick={()=>{setFilter('active');setPage(1)}}>有效</Button><Button type={filter==='cancelled'?'primary':'default'}onClick={()=>{setFilter('cancelled');setPage(1)}}>已取消</Button></Space><Table dataSource={data?.items||[]} columns={cols} rowKey="id" size="small" pagination={{current:page,total:data?.total||0,pageSize:20,onChange:p=>setPage(p),showTotal:t=>\`共 \${t} 条\`}}/></Card></div>);
+// ── Main Page ──
+function Page(props) {
+  function doLogout() { localStorage.removeItem('wb_token'); localStorage.removeItem('wb_user'); props.onLogout(); }
+
+  var S1 = useState(false), processing = S1[0], setProcessing = S1[1];
+  var S2 = useState(null), result = S2[0], setResult = S2[1];
+  var S3 = useState(12.5), er = S3[0], setEr = S3[1];
+  var S4 = useState(12), tr = S4[0], setTr = S4[1];
+  var S5 = useState(7), fr = S5[0], setFr = S5[1];
+  var S6 = useState(null), pf = S6[0], setPf = S6[1];
+  var S7 = useState(null), puf = S7[0], setPuf = S7[1];
+  var r1 = useRef(null), r2 = useRef(null);
+
+  function doUpload(f, type) {
+    var fd = new FormData();
+    fd.append('file', f);
+    fd.append('file_type', type);
+    var hd = {}; var t = getToken(); if (t) hd['Authorization'] = 'Bearer '+t;
+    fetch(API+'/reports/upload',{method:'POST',body:fd,headers:hd})
+      .then(function(r){return r.json();})
+      .then(function(j){if(j.status==='success'){if(type==='platform')setPf(f.name);else setPuf(f.name);}});
+  }
+
+  function onFile(e, type) {
+    var f = e.target.files[0];
+    if (!f || !f.name.match(/\.(xlsx|xls)$/i)) return;
+    doUpload(f, type);
+    e.target.value = '';
+  }
+
+  function onProcess() {
+    if (!pf) return;
+    setProcessing(true); setResult(null);
+    var hd = {}; var t = getToken(); if (t) hd['Authorization'] = 'Bearer '+t;
+    fetch(API+'/reports/process?exchange_rate='+er+'&tax_rate='+tr+'&fee_rate='+fr,{method:'POST',headers:hd})
+      .then(function(r){return r.json();})
+      .then(function(d){if(d.status==='success'){setResult(d);setPf(null);setPuf(null);}setProcessing(false);})
+      .catch(function(){setProcessing(false);});
+  }
+
+  return h('div',null,
+    h('div',{className:'header'},
+      h('h1',null,'WB 财务分析'),
+      h('span',{className:'logout-btn',onClick:doLogout},'退出')
+    ),
+    h('div',{className:'container'},
+      h('div',{className:'card'},
+        h('div',{className:'card-title'},'📎 上传报表'),
+        h('div',{className:'upload-grid'},
+          h('div',null,
+            h('div',{className:'drop-zone',onClick:function(){r1.current&&r1.current.click();}},
+              pf ? h('div',null,h('div',{style:{fontSize:28}},'📄'),h('div',{style:{fontSize:14,marginTop:4}},pf))
+                 : h('div',null,h('div',{className:'drop-icon'},'📁'),h('div',{style:{fontSize:15,marginBottom:4}},'平台报表'),h('div',{style:{fontSize:12,color:'#999'}},'WB 俄语报表')),
+            ),
+            h('input',{type:'file',ref:r1,accept:'.xlsx,.xls',style:{display:'none'},onChange:function(e){onFile(e,'platform');}}),
+            pf ? h('div',{className:'file-tag'},'✅ '+pf) : null
+          ),
+          h('div',null,
+            h('div',{className:'drop-zone',onClick:function(){r2.current&&r2.current.click();}},
+              puf ? h('div',null,h('div',{style:{fontSize:28}},'📄'),h('div',{style:{fontSize:14,marginTop:4}},puf))
+                  : h('div',null,h('div',{className:'drop-icon'},'📋'),h('div',{style:{fontSize:15,marginBottom:4}},'采购文件'),h('div',{style:{fontSize:12,color:'#999'}},'品名/货本/头程')),
+            ),
+            h('input',{type:'file',ref:r2,accept:'.xlsx,.xls',style:{display:'none'},onChange:function(e){onFile(e,'purchase');}}),
+            puf ? h('div',{className:'file-tag'},'✅ '+puf) : null
+          )
+        )
+      ),
+      h('div',{className:'card'},
+        h('div',{className:'card-title'},'⚙️ 处理参数'),
+        h('div',{className:'param-grid'},
+          h('div',null,h('div',{className:'param-label'},'汇率 (卢布→人民币)'),h('input',{className:'param-input',type:'number',step:'0.1',value:er,onChange:function(e){setEr(parseFloat(e.target.value)||0)}})),
+          h('div',null,h('div',{className:'param-label'},'税率 (%)'),h('input',{className:'param-input',type:'number',step:'0.1',value:tr,onChange:function(e){setTr(parseFloat(e.target.value)||0)}})),
+          h('div',null,h('div',{className:'param-label'},'手续费率 (%)'),h('input',{className:'param-input',type:'number',step:'0.1',value:fr,onChange:function(e){setFr(parseFloat(e.target.value)||0)}})),
+          h('button',{className:'btn btn-primary',disabled:!pf||processing,onClick:onProcess,style:{padding:'8px 24px'}},
+            processing ? '处理中...' : '处理')
+        ),
+        result ? h('div',{className:'result-box'},
+          h('span',{className:'msg'},'✅ 处理完成！商品:'+(result.stats?.products||'')+' 销售:'+(result.stats?.sales_rows||'')),
+          h('a',{className:'btn btn-success',href:result.download_url,target:'_blank'},'下载')
+        ) : null
+      )
+    )
+  );
 }
 
-function Stocks() {
-  const [data,setData]=useState(null);const[loading,setLoading]=useState(true);
-  useEffect(()=>{fetchAPI('/stocks?page=1&page_size=20').then(d=>{setData(d);setLoading(false)}).catch(()=>{message.error('加载失败');setLoading(false)});},[]);
-  if(loading)return<Spin size="large" style={{display:'block',margin:'100px auto'}}/>;
-  const wh=(data?.warehouses||[]).map(w=>({name:w.name,value:w.value}));
-  const cols=[{title:'商品',dataIndex:'supplier_article',ellipsis:true,width:150},{title:'NM ID',dataIndex:'nm_id',width:100},{title:'库存',dataIndex:'quantity',width:60},{title:'单价',dataIndex:'price',render:v=>\`₽\${fmt(v)}\`,width:80},{title:'总价值',dataIndex:'total_value',render:v=>\`₽\${fmt(v)}\`,width:100,sorter:(a,b)=>a.total_value-b.total_value}];
-  const tv=(data?.items||[]).reduce((s,i)=>s+(i.total_value||0),0);
-  return(<div><Title level={4}>📦 库存概览</Title><Row gutter={16}><Col span={6}><Card><Statistic title="SKU 总数" value={data?.total||0}/></Card></Col><Col span={6}><Card><Statistic title="库存总值" value={tv} prefix="₽" precision={2}/></Card></Col></Row><Row gutter={16} style={{marginTop:16}}><Col xs={24} lg={8}><Card title="仓库分布">{wh.length>0?<Pie data={wh} angleField="value" colorField="name" height={300}/>:<Empty description="暂无数据"/>}</Card></Col><Col xs={24} lg={16}><Card><Table dataSource={data?.items||[]} columns={cols} rowKey="id" size="small" pagination={{pageSize:20,showTotal:t=>\`共 \${t} 条\`}}/></Card></Col></Row></div>);
-}
-
-function Reports() {
-  const [data,setData]=useState(null);const[loading,setLoading]=useState(true);
-  useEffect(()=>{Promise.all([fetchAPI('/reports/daily?days=30'),fetchAPI('/reports/summary?days=30')]).then(([d,s])=>{setData({daily:d,summary:s});setLoading(false)}).catch(()=>{message.error('加载失败');setLoading(false)});},[]);
-  if(loading)return<Spin size="large" style={{display:'block',margin:'100px auto'}}/>;if(!data)return<Empty description="暂无数据"/>;
-  const s=data.summary||{},dd=(data.daily?.items||[]).slice().reverse();
-  const cols=[{title:'日期',dataIndex:'date',render:d=>fd(d)},{title:'销售额',dataIndex:'sales',render:v=>\`₽\${fmt(v)}\`},{title:'实收',dataIndex:'for_pay',render:v=>\`₽\${fmt(v)}\`},{title:'订单数',dataIndex:'orders'},{title:'佣金',dataIndex:'commission',render:v=>\`₽\${fmt(v)}\`}];
-  return(<div><Title level={4}>📊 财务报表</Title><Row gutter={[16,16]}><Col xs={12} lg={8}><Card><Statistic title="30天销售额" value={s.total_sales||0} prefix="₽" precision={2}/></Card></Col><Col xs={12} lg={8}><Card><Statistic title="30天净收入" value={s.net_revenue||0} prefix="₽" precision={2} valueStyle={{color:'#3f8600'}}/></Card></Col><Col xs={12} lg={8}><Card><Statistic title="30天佣金" value={s.total_commission||0} prefix="₽" precision={2} valueStyle={{color:'#faad14'}}/></Card></Col></Row><Card title="📈 每日报表" style={{marginTop:16}}><Table dataSource={dd} columns={cols} rowKey="date" size="small" pagination={false}/></Card></div>);
-}
-
+// ── App ──
 function App() {
-  const [collapsed, setCollapsed] = useState(false);
-  const [page, setPage] = useState('dashboard');
-  const pages = {dashboard:Dashboard, sales:SalesAnalysis, orders:Orders, stocks:Stocks, reports:Reports};
-  const PageComponent = pages[page] || Dashboard;
-  const items = [
-    {key:'dashboard',icon:<DashboardOutlined/>,label:'仪表盘'},
-    {key:'sales',icon:<BarChartOutlined/>,label:'销售分析'},
-    {key:'orders',icon:<ShoppingCartOutlined/>,label:'订单管理'},
-    {key:'stocks',icon:<InboxOutlined/>,label:'库存概览'},
-    {key:'reports',icon:<CloudSyncOutlined/>,label:'财务报表'},
-  ];
-  return (<Layout style={{minHeight:'100vh'}}>
-    <Sider collapsible collapsed={collapsed} onCollapse={setCollapsed} theme="dark">
-      <div style={{height:64,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:collapsed?14:18,fontWeight:'bold',borderBottom:'1px solid #333'}}>
-        {collapsed?'WB':'WB 财务分析'}
-      </div>
-      <Menu theme="dark" mode="inline" selectedKeys={[page]} items={items} onClick={({key}) => setPage(key)}/>
-    </Sider>
-    <Layout><Content style={{margin:16,padding:24,background:'#f5f5f5',minHeight:280}}><PageComponent/></Content></Layout>
-  </Layout>);
+  var S = useState(null), loggedIn = S[0], setLoggedIn = S[1];
+  var S2 = useState(false), checked = S2[0], setChecked = S2[1];
+
+  useEffect(function(){
+    var t = localStorage.getItem('wb_token');
+    if (t) {
+      var hd = {'Authorization':'Bearer '+t};
+      fetch(API+'/auth/verify',{headers:hd}).then(function(r){
+        if (r.ok) { setLoggedIn(true); } else { localStorage.removeItem('wb_token'); localStorage.removeItem('wb_user'); }
+        setChecked(true);
+      }).catch(function(){setChecked(true);});
+    } else { setChecked(true); }
+  }, []);
+
+  if (!checked) return null;
+  if (!loggedIn) return h(LoginPage,{onLogin:function(){setLoggedIn(true);}});
+  return h(Page,{onLogout:function(){setLoggedIn(false);}});
 }
 
-const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(React.createElement(App));
+createRoot(document.getElementById('root')).render(h(App));
 </script>
 </body>
 </html>
