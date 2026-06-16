@@ -26,11 +26,20 @@
     .upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     .file-tag { display: inline-block; background: #f6ffed; border: 1px solid #b7eb8f; border-radius: 4px; padding: 3px 8px; font-size: 12px; margin-top: 8px; color: #52c41a; }
     .param-grid { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 16px; align-items: end; }
+    .fetch-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr 1fr auto; gap: 12px; align-items: end; }
     .param-label { font-size: 12px; color: #999; margin-bottom: 4px; }
     .param-input { width: 100%; padding: 6px 10px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 14px; text-align: center; }
     .param-input:focus { outline: none; border-color: #1677ff; box-shadow: 0 0 0 2px rgba(22,119,255,.1); }
+    .date-input { width: 100%; padding: 6px 10px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 14px; }
+    .date-input:focus { outline: none; border-color: #1677ff; box-shadow: 0 0 0 2px rgba(22,119,255,.1); }
+    .fetch-progress { background: #e6f4ff; border: 1px solid #91caff; border-radius: 6px; padding: 14px 16px; margin-top: 12px; display: flex; align-items: center; gap: 10px; font-size: 14px; color: #1677ff; }
     .result-box { background: #f6ffed; border: 1px solid #b7eb8f; border-radius: 6px; padding: 14px 16px; margin-top: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
     .result-box .msg { font-weight: 600; color: #52c41a; }
+    /* Tab bar */
+    .tab-bar { background: #fff; border-bottom: 1px solid #e8e8e8; display: flex; padding: 0 16px; }
+    .tab-item { padding: 12px 20px; cursor: pointer; font-size: 14px; color: #666; border-bottom: 2px solid transparent; transition: all .3s; user-select: none; }
+    .tab-item:hover { color: #1677ff; }
+    .tab-item.active { color: #1677ff; border-bottom-color: #1677ff; font-weight: 600; }
     .login-overlay { position: fixed; inset: 0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; align-items: center; justify-content: center; z-index: 9999; }
     .login-box { background: #fff; border-radius: 12px; padding: 40px 32px; width: 360px; box-shadow: 0 8px 32px rgba(0,0,0,.15); text-align: center; }
     .login-box h2 { font-size: 20px; margin: 0 0 4px; }
@@ -43,7 +52,7 @@
     .login-err { color: #ff4d4f; font-size: 13px; margin-bottom: 12px; }
     .logout-btn { color: #fff; font-size: 13px; cursor: pointer; opacity: .7; padding: 4px 8px; }
     .logout-btn:hover { opacity: 1; }
-    @media (max-width: 768px) { .upload-grid { grid-template-columns: 1fr; } .param-grid { grid-template-columns: 1fr 1fr; } .container { padding: 8px; } .card { padding: 16px; } }
+    @media (max-width: 768px) { .upload-grid { grid-template-columns: 1fr; } .param-grid { grid-template-columns: 1fr 1fr; } .fetch-grid { grid-template-columns: 1fr 1fr; } .container { padding: 8px; } .card { padding: 16px; } .tab-item { padding: 10px 12px; font-size: 13px; } }
   </style>
 </head>
 <body>
@@ -101,27 +110,29 @@ function LoginPage(props) {
   );
 }
 
-// ── Main Page ──
-function Page(props) {
-  function doLogout() { localStorage.removeItem('wb_token'); localStorage.removeItem('wb_user'); props.onLogout(); }
-
+// ── Manual Upload Tab ──
+function ManualTab(props) {
   var S1 = useState(false), processing = S1[0], setProcessing = S1[1];
   var S2 = useState(null), result = S2[0], setResult = S2[1];
-  var S3 = useState(12.5), er = S3[0], setEr = S3[1];
-  var S4 = useState(12), tr = S4[0], setTr = S4[1];
-  var S5 = useState(7), fr = S5[0], setFr = S5[1];
-  var S6 = useState(null), pf = S6[0], setPf = S6[1];
-  var S7 = useState(null), puf = S7[0], setPuf = S7[1];
+  var S3 = useState(null), pf = S3[0], setPf = S3[1];
+  var S4 = useState(null), puf = S4[0], setPuf = S4[1];
+  var L1 = useState(false), pfl = L1[0], setPfl = L1[1];
+  var L2 = useState(false), pufl = L2[0], setPufl = L2[1];
   var r1 = useRef(null), r2 = useRef(null);
+  var er = props.er, tr = props.tr, fr = props.fr;
+  var setEr = props.setEr, setTr = props.setTr, setFr = props.setFr;
 
   function doUpload(f, type) {
+    if(type==="platform")setPfl(true);else setPufl(true);
     var fd = new FormData();
     fd.append('file', f);
     fd.append('file_type', type);
     var hd = {}; var t = getToken(); if (t) hd['Authorization'] = 'Bearer '+t;
     fetch(API+'/reports/upload',{method:'POST',body:fd,headers:hd})
       .then(function(r){return r.json();})
-      .then(function(j){if(j.status==='success'){if(type==='platform')setPf(f.name);else setPuf(f.name);}});
+      .then(function(j){if(j.status==='success'){if(type==='platform')setPf(f.name);else setPuf(f.name);}})
+      .catch(function(){})
+      .finally(function(){if(type==='platform')setPfl(false);else setPufl(false);});
   }
 
   function onFile(e, type) {
@@ -142,46 +153,151 @@ function Page(props) {
   }
 
   return h('div',null,
+    // Upload Section
+    h('div',{className:'card'},
+      h('div',{className:'card-title'},'📎 上传报表'),
+      h('div',{className:'upload-grid'},
+        h('div',null,
+          h('div',{className:'drop-zone',onClick:function(){r1.current&&r1.current.click();}},
+            pfl ? h('div',null,h('div',{style:{fontSize:28}},'⏳'),h('div',{style:{fontSize:14,marginTop:4,color:'#1677ff'}},'上传中...')) : pf ? h('div',null,h('div',{style:{fontSize:28}},'📄'),h('div',{style:{fontSize:14,marginTop:4}},pf))
+               : h('div',null,h('div',{className:'drop-icon'},'📁'),h('div',{style:{fontSize:15,marginBottom:4}},'平台报表'),h('div',{style:{fontSize:12,color:'#999'}},'WB 俄语报表')),
+          ),
+          h('input',{type:'file',ref:r1,accept:'.xlsx,.xls',style:{display:'none'},onChange:function(e){onFile(e,'platform');}}),
+          pf ? h('div',{className:'file-tag'},'✅ '+pf) : null
+        ),
+        h('div',null,
+          h('div',{className:'drop-zone',onClick:function(){r2.current&&r2.current.click();}},
+            pufl ? h('div',null,h('div',{style:{fontSize:28}},'⏳'),h('div',{style:{fontSize:14,marginTop:4,color:'#1677ff'}},'上传中...')) : puf ? h('div',null,h('div',{style:{fontSize:28}},'📄'),h('div',{style:{fontSize:14,marginTop:4}},puf))
+                : h('div',null,h('div',{className:'drop-icon'},'📋'),h('div',{style:{fontSize:15,marginBottom:4}},'采购文件'),h('div',{style:{fontSize:12,color:'#999'}},'品名/货本/头程/标签(₽)')),
+          ),
+          h('input',{type:'file',ref:r2,accept:'.xlsx,.xls',style:{display:'none'},onChange:function(e){onFile(e,'purchase');}}),
+          puf ? h('div',{className:'file-tag'},'✅ '+puf) : null
+        )
+      )
+    ),
+    // Parameters & Process
+    h('div',{className:'card'},
+      h('div',{className:'card-title'},'⚙️ 处理参数'),
+      h('div',{className:'param-grid'},
+        h('div',null,h('div',{className:'param-label'},'汇率 (₽→¥)'),h('input',{className:'param-input',type:'number',step:'0.1',value:er,onChange:function(e){setEr(parseFloat(e.target.value)||0)}})),
+        h('div',null,h('div',{className:'param-label'},'税率 (%)'),h('input',{className:'param-input',type:'number',step:'0.1',value:tr,onChange:function(e){setTr(parseFloat(e.target.value)||0)}})),
+        h('div',null,h('div',{className:'param-label'},'手续费率 (%)'),h('input',{className:'param-input',type:'number',step:'0.1',value:fr,onChange:function(e){setFr(parseFloat(e.target.value)||0)}})),
+        h('button',{className:'btn btn-primary',disabled:!pf||processing,onClick:onProcess,style:{padding:'8px 24px'}},
+          processing ? '处理中...' : '处理')
+      ),
+      result ? h('div',{className:'result-box'},
+        h('span',{className:'msg'},'✅ 处理完成！商品:'+(result.stats?.products||'')+' 销售:'+(result.stats?.sales_rows||'')),
+        h('a',{className:'btn btn-success',href:result.download_url,target:'_blank'},'📥 下载')
+      ) : null
+    )
+  );
+}
+
+// ── Auto Fetch Tab ──
+function AutoFetchTab(props) {
+  var S1 = useState(false), fetching = S1[0], setFetching = S1[1];
+  var S2 = useState(''), startDate = S2[0], setStartDate = S2[1];
+  var S3 = useState(''), endDate = S3[0], setEndDate = S3[1];
+  var S4 = useState(null), fetchResult = S4[0], setFetchResult = S4[1];
+  var er = props.er, tr = props.tr, fr = props.fr;
+  var setEr = props.setEr, setTr = props.setTr, setFr = props.setFr;
+
+  function onAutoFetch() {
+    if (!startDate || !endDate) { alert('请选择日期范围'); return; }
+    setFetching(true); setFetchResult(null);
+    var fd = new FormData();
+    fd.append('start_date', startDate);
+    fd.append('end_date', endDate);
+    fd.append('exchange_rate', String(er));
+    fd.append('tax_rate', String(tr));
+    fd.append('fee_rate', String(fr));
+    var hd = {}; var t = getToken(); if (t) hd['Authorization'] = 'Bearer '+t;
+    fetch(API+'/reports/fetch-auto',{method:'POST',body:fd,headers:hd})
+      .then(function(r){return r.json().then(function(d){return {status:r.status,data:d};});})
+      .then(function(r){
+        if (r.status !== 200) throw new Error(r.data.detail||'请求失败');
+        setFetchResult(r.data);
+        setFetching(false);
+      })
+      .catch(function(e){alert('自动分析失败: '+e.message);setFetching(false);});
+  }
+
+  return h('div',null,
+    h('div',{className:'card'},
+      h('div',{className:'card-title'},'🚀 自动拉取 WB 报表'),
+      h('div',{className:'fetch-grid'},
+        h('div',null,
+          h('div',{className:'param-label'},'开始日期'),
+          h('input',{className:'date-input',type:'date',value:startDate,onChange:function(e){setStartDate(e.target.value);setFetchResult(null);}})
+        ),
+        h('div',null,
+          h('div',{className:'param-label'},'结束日期'),
+          h('input',{className:'date-input',type:'date',value:endDate,onChange:function(e){setEndDate(e.target.value);setFetchResult(null);}})
+        ),
+        h('div',null,
+          h('div',{className:'param-label'},'汇率 (₽→¥)'),
+          h('input',{className:'param-input',type:'number',step:'0.1',value:er,onChange:function(e){setEr(parseFloat(e.target.value)||0)}})
+        ),
+        h('div',null,
+          h('div',{className:'param-label'},'税率 %'),
+          h('input',{className:'param-input',type:'number',step:'0.1',value:tr,onChange:function(e){setTr(parseFloat(e.target.value)||0)}})
+        ),
+        h('div',null,
+          h('div',{className:'param-label'},'手续费率 %'),
+          h('input',{className:'param-input',type:'number',step:'0.1',value:fr,onChange:function(e){setFr(parseFloat(e.target.value)||0)}})
+        ),
+        h('div',null,
+          h('button',{
+            className:'btn btn-primary',
+            disabled:fetching||!startDate||!endDate,
+            onClick:onAutoFetch,
+            style:{padding:'8px 24px',width:'100%'}
+          }, fetching ? '拉取中...' : '自动分析')
+        )
+      ),
+      fetching ? h('div',{className:'fetch-progress'},'⏳ 正在从 WB 拉取报表数据并生成利润表...') : null,
+      fetchResult ? h('div',{className:'result-box'},
+        h('span',{className:'msg'},
+          '✅ 分析完成！记录:'+(fetchResult.stats?.total_rows||0)+' 商品:'+(fetchResult.stats?.products||0)
+        ),
+        h('a',{className:'btn btn-success',href:fetchResult.download_url,target:'_blank'},'📥 下载利润表')
+      ) : null
+    )
+  );
+}
+
+// ── Main Page ──
+function Page(props) {
+  function doLogout() { localStorage.removeItem('wb_token'); localStorage.removeItem('wb_user'); props.onLogout(); }
+
+  var S1 = useState('manual'), tab = S1[0], setTab = S1[1];
+  var S2 = useState(12.5), er = S2[0], setEr = S2[1];
+  var S3 = useState(12), tr = S3[0], setTr = S3[1];
+  var S4 = useState(7), fr = S4[0], setFr = S4[1];
+
+  var tabs = [
+    {key:'manual', label:'📎 手动处理'},
+    {key:'auto', label:'🚀 自动分析'},
+  ];
+
+  return h('div',null,
     h('div',{className:'header'},
       h('h1',null,'WB 财务分析'),
       h('span',{className:'logout-btn',onClick:doLogout},'退出')
     ),
+    h('div',{className:'tab-bar'},
+      tabs.map(function(t){
+        return h('div',{
+          key:t.key,
+          className:'tab-item'+(tab===t.key?' active':''),
+          onClick:function(){setTab(t.key);}
+        }, t.label);
+      })
+    ),
     h('div',{className:'container'},
-      h('div',{className:'card'},
-        h('div',{className:'card-title'},'📎 上传报表'),
-        h('div',{className:'upload-grid'},
-          h('div',null,
-            h('div',{className:'drop-zone',onClick:function(){r1.current&&r1.current.click();}},
-              pf ? h('div',null,h('div',{style:{fontSize:28}},'📄'),h('div',{style:{fontSize:14,marginTop:4}},pf))
-                 : h('div',null,h('div',{className:'drop-icon'},'📁'),h('div',{style:{fontSize:15,marginBottom:4}},'平台报表'),h('div',{style:{fontSize:12,color:'#999'}},'WB 俄语报表')),
-            ),
-            h('input',{type:'file',ref:r1,accept:'.xlsx,.xls',style:{display:'none'},onChange:function(e){onFile(e,'platform');}}),
-            pf ? h('div',{className:'file-tag'},'✅ '+pf) : null
-          ),
-          h('div',null,
-            h('div',{className:'drop-zone',onClick:function(){r2.current&&r2.current.click();}},
-              puf ? h('div',null,h('div',{style:{fontSize:28}},'📄'),h('div',{style:{fontSize:14,marginTop:4}},puf))
-                  : h('div',null,h('div',{className:'drop-icon'},'📋'),h('div',{style:{fontSize:15,marginBottom:4}},'采购文件'),h('div',{style:{fontSize:12,color:'#999'}},'品名/货本/头程/标签(₽)')),
-            ),
-            h('input',{type:'file',ref:r2,accept:'.xlsx,.xls',style:{display:'none'},onChange:function(e){onFile(e,'purchase');}}),
-            puf ? h('div',{className:'file-tag'},'✅ '+puf) : null
-          )
-        )
-      ),
-      h('div',{className:'card'},
-        h('div',{className:'card-title'},'⚙️ 处理参数'),
-        h('div',{className:'param-grid'},
-          h('div',null,h('div',{className:'param-label'},'汇率 (卢布→人民币)'),h('input',{className:'param-input',type:'number',step:'0.1',value:er,onChange:function(e){setEr(parseFloat(e.target.value)||0)}})),
-          h('div',null,h('div',{className:'param-label'},'税率 (%)'),h('input',{className:'param-input',type:'number',step:'0.1',value:tr,onChange:function(e){setTr(parseFloat(e.target.value)||0)}})),
-          h('div',null,h('div',{className:'param-label'},'手续费率 (%)'),h('input',{className:'param-input',type:'number',step:'0.1',value:fr,onChange:function(e){setFr(parseFloat(e.target.value)||0)}})),
-          h('button',{className:'btn btn-primary',disabled:!pf||processing,onClick:onProcess,style:{padding:'8px 24px'}},
-            processing ? '处理中...' : '处理')
-        ),
-        result ? h('div',{className:'result-box'},
-          h('span',{className:'msg'},'✅ 处理完成！商品:'+(result.stats?.products||'')+' 销售:'+(result.stats?.sales_rows||'')),
-          h('a',{className:'btn btn-success',href:result.download_url,target:'_blank'},'下载')
-        ) : null
-      )
+      tab === 'manual'
+        ? h(ManualTab,{er:er,tr:tr,fr:fr,setEr:setEr,setTr:setTr,setFr:setFr})
+        : h(AutoFetchTab,{er:er,tr:tr,fr:fr,setEr:setEr,setTr:setTr,setFr:setFr})
     )
   );
 }
