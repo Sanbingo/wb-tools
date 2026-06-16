@@ -1388,7 +1388,7 @@ async def _process_single_report(
             head_total = round(head_per_unit * qty, 2)
             label_total_rub = round(label_cost_rub * qty, 2)
 
-            total_sum = round(for_pay - logistics - storage_fee - label_total_rub, 2)
+            total_sum = round(for_pay - logistics - storage_fee - label_total_rub - p["return_amount"], 2)
             after_tax = round(total_sum * tax_factor, 2)
             to_cny = round(after_tax / exchange_rate, 2)
 
