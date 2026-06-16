@@ -1328,19 +1328,8 @@ async def _process_reports(
                 new_row[payment_col] = translated
             processed_rows.append(new_row)
 
-        # Deduplicate by gi_id (报告编号/№) to avoid double-counting same orders across merged files
-        gi_id_col = col_idx.get("报告编号", -1)
-        if gi_id_col >= 0:
-            seen = set()
-            deduped = []
-            for row in processed_rows:
-                gi_id = str(get_val(row, gi_id_col) or "").strip()
-                if gi_id and gi_id in seen:
-                    continue
-                if gi_id:
-                    seen.add(gi_id)
-                deduped.append(row)
-            processed_rows = deduped
+        # 注意：不对行级 gi_id 去重，因为 WB 网页导出的 Excel 中"报告编号"(№)是文件内行号，非全局唯一ID。
+        # 不同文件的行号会重叠，导致数据被误删。产品级聚合（按条码前缀）已能正确处理同品合并。
 
         ws_proc = wb_out.active
         ws_proc.title = "初处理"
