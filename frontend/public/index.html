@@ -161,7 +161,7 @@ function Page(props) {
           h('div',null,
             h('div',{className:'drop-zone',onClick:function(){r2.current&&r2.current.click();}},
               puf ? h('div',null,h('div',{style:{fontSize:28}},'📄'),h('div',{style:{fontSize:14,marginTop:4}},puf))
-                  : h('div',null,h('div',{className:'drop-icon'},'📋'),h('div',{style:{fontSize:15,marginBottom:4}},'采购文件'),h('div',{style:{fontSize:12,color:'#999'}},'品名/货本/头程')),
+                  : h('div',null,h('div',{className:'drop-icon'},'📋'),h('div',{style:{fontSize:15,marginBottom:4}},'采购文件'),h('div',{style:{fontSize:12,color:'#999'}},'品名/货本/头程/标签(₽)')),
             ),
             h('input',{type:'file',ref:r2,accept:'.xlsx,.xls',style:{display:'none'},onChange:function(e){onFile(e,'purchase');}}),
             puf ? h('div',{className:'file-tag'},'✅ '+puf) : null

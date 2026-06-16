@@ -1207,7 +1207,7 @@ async def _load_purchase_data(db: AsyncSession) -> dict:
             wb_p = load_workbook(purchase_report.file_path, data_only=True)
             ws_p = wb_p.active
             p_headers = []
-            name_col = cost_col = head_col = -1
+            name_col = cost_col = head_col = label_col = -1
             for row in ws_p.iter_rows(values_only=True):
                 if not row or not any(row):
                     continue
@@ -1221,6 +1221,8 @@ async def _load_purchase_data(db: AsyncSession) -> dict:
                             cost_col = i
                         elif any(kw in hl for kw in ("单套头程", "头程", "运费", "первая миля")):
                             head_col = i
+                        elif any(kw in hl for kw in ("单套标签", "标签", "наклейка")):
+                            label_col = i
                     continue
                 if name_col < 0:
                     continue
@@ -1229,7 +1231,8 @@ async def _load_purchase_data(db: AsyncSession) -> dict:
                     continue
                 cost_val = float(row[cost_col]) if cost_col >= 0 and cost_col < len(row) and isinstance(row[cost_col], (int, float)) else 0.0
                 head_val = float(row[head_col]) if head_col >= 0 and head_col < len(row) and isinstance(row[head_col], (int, float)) else 0.0
-                purchase_data[name_val] = {"cost": cost_val, "head_freight": head_val}
+                label_val = float(row[label_col]) if label_col >= 0 and label_col < len(row) and isinstance(row[label_col], (int, float)) else 0.0
+                purchase_data[name_val] = {"cost": cost_val, "head_freight": head_val, "label_cost": label_val}
         except Exception:
             pass
     return purchase_data
@@ -1371,20 +1374,23 @@ async def _process_single_report(
             avg_log = round(logistics / qty, 2) if qty > 0 else 0
             storage_fee = round(qty * storage_per_unit, 2)
 
-            purch = purchase_data.get(code, None) or purchase_data.get(p["name"], None) or {"cost": 0, "head_freight": 0}
+            purch = purchase_data.get(code, None) or purchase_data.get(p["name"], None) or {"cost": 0, "head_freight": 0, "label_cost": 0}
             cost_per_unit = purch["cost"]
             head_per_unit = purch["head_freight"]
+            label_cost_rub = purch.get("label_cost", 0)  # 卢布
             cost_total = round(cost_per_unit * qty, 2)
             head_total = round(head_per_unit * qty, 2)
+            label_total_rub = round(label_cost_rub * qty, 2)
+            label_total_cny = round(label_total_rub / exchange_rate, 2)  # 换算为人民币
 
             total_sum = round(for_pay - logistics - storage_fee - cost_total - head_total, 2)
             after_tax = round(total_sum * tax_factor, 2)
             to_cny = round(after_tax / exchange_rate, 2)
 
-            total_profit = round(to_cny - cost_total - head_total, 2)
+            total_profit = round(to_cny - cost_total - head_total - label_total_cny, 2)
             profit_data.append([code, int(qty), avg_price, round(for_pay, 2),
                                 0, avg_log, round(logistics, 2), storage_fee,
-                                cost_per_unit, head_per_unit, cost_total, head_total,
+                                cost_per_unit, head_per_unit, label_cost_rub, cost_total, head_total, label_total_cny,
                                 total_sum, after_tax, to_cny,
                                 total_profit,
                                 round(total_profit / qty, 2) if qty > 0 else 0])
@@ -1392,7 +1398,7 @@ async def _process_single_report(
         ws_profit = wb_out.create_sheet("利润表")
         profit_h = ["品名", "数量", "平均单套售价", "支付金额",
                     "退货金额", "平均单套物流", "物流费", "仓储费",
-                    "单套货本", "单套头程", "货本总计", "头程总计",
+                    "单套货本", "单套头程", "单套标签(₽)", "货本总计", "头程总计", "标签总计(¥)",
                     "一个型号总和", "扣税和手续费后", "汇率转人民币", "总利润", "单个利润"]
         ws_profit.append(profit_h)
         for row in profit_data:
