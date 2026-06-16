@@ -1146,6 +1146,7 @@ PAYMENT_TYPE_MAP = {
     "удержание": "广告",
     "хранение": "仓储",
     "штраф": "罚款",
+    "возврат": "退货",
 }
 
 CATEGORY_COLUMNS = {
@@ -1154,6 +1155,7 @@ CATEGORY_COLUMNS = {
     "仓储": ["付款依据", "销售日期", "仓储费"],
     "广告": ["付款依据", "销售日期", "wb物流罚款调整类型", "扣款"],
     "罚款": ["付款依据", "销售日期", "罚款总额", "wb物流罚款调整类型"],
+    "退货": ["条形码", "付款依据", "销售日期", "数量", "支付给卖家的已售商品金额", "退货数量"],
 }
 
 
@@ -1303,7 +1305,7 @@ async def _process_single_report(
         auto_width(ws_proc)
 
         # Category sheets
-        categorized = {"销售": [], "物流": [], "仓储": [], "广告": [], "罚款": []}
+        categorized = {"销售": [], "物流": [], "仓储": [], "广告": [], "罚款": [], "退货": []}
         for row in processed_rows:
             pv = str(get_val(row, payment_col) or "").strip()
             if pv in categorized:
@@ -1315,6 +1317,7 @@ async def _process_single_report(
             "仓储": ["付款依据", "销售日期", "仓储费"],
             "广告": ["付款依据", "销售日期", "wb物流罚款调整类型", "扣款"],
             "罚款": ["付款依据", "销售日期", "罚款总额", "wb物流罚款调整类型"],
+            "退货": ["条形码", "付款依据", "销售日期", "数量", "支付给卖家的已售商品金额", "退货数量"],
         }
 
         for cat_name, cat_rows in categorized.items():
@@ -1340,7 +1343,7 @@ async def _process_single_report(
                 continue
             if code not in products:
                 products[code] = {"code": code, "name": product_name, "barcode": barcode, "qty": 0, "for_pay": 0.0,
-                                  "logistics": 0.0, "delivery_qty": 0, "return_qty": 0}
+                                  "logistics": 0.0, "delivery_qty": 0, "return_qty": 0, "return_amount": 0.0}
             p = products[code]
             if product_name and not p["name"]:
                 p["name"] = product_name
@@ -1352,6 +1355,9 @@ async def _process_single_report(
             elif pv == "物流":
                 lc = float(get_val(row, logistics_col) or 0)
                 p["logistics"] += lc
+            elif pv == "退货":
+                ret_amt = float(get_val(row, for_pay_col) or 0)
+                p["return_amount"] += ret_amt
 
         total_storage = sum(
             float(get_val(row, storage_col) or 0)
@@ -1388,7 +1394,7 @@ async def _process_single_report(
 
             total_profit = round(to_cny - cost_total - head_total, 2)
             profit_data.append([code, int(qty), avg_price, round(for_pay, 2),
-                                0, avg_log, round(logistics, 2), storage_fee,
+                                round(p["return_amount"], 2), avg_log, round(logistics, 2), storage_fee,
                                 cost_per_unit, head_per_unit, label_cost_rub, cost_total, head_total, label_total_rub,
                                 total_sum, after_tax, to_cny,
                                 total_profit,
@@ -1446,6 +1452,7 @@ async def _process_single_report(
                 "storage_rows": len(categorized.get("仓储", [])),
                 "ad_rows": len(categorized.get("广告", [])),
                 "penalty_rows": len(categorized.get("罚款", [])),
+                "return_rows": len(categorized.get("退货", [])),
                 "products": len(profit_data),
                 "total_storage": round(total_storage, 2),
                 "exchange_rate": exchange_rate,
