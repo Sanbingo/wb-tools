@@ -653,8 +653,8 @@ async def fetch_and_process(
     start_date: str = Form(...),
     end_date: str = Form(...),
     exchange_rate: float = Form(12.5),
-    tax_rate: float = Form(12),
-    fee_rate: float = Form(7),
+    tax_rate: float = Form(7),
+    fee_rate: float = Form(12),
     db: AsyncSession = Depends(get_db),
 ):
     """Fetch WB report for date range via API, convert to Excel, process into profit table."""
@@ -1386,7 +1386,7 @@ async def _process_single_report(
             after_tax = round(total_sum * tax_factor, 2)
             to_cny = round(after_tax / exchange_rate, 2)
 
-            total_profit = round(after_tax - cost_total - head_total, 2)
+            total_profit = round(to_cny - cost_total - head_total, 2)
             profit_data.append([code, int(qty), avg_price, round(for_pay, 2),
                                 0, avg_log, round(logistics, 2), storage_fee,
                                 cost_per_unit, head_per_unit, label_cost_rub, cost_total, head_total, label_total_rub,
@@ -1462,8 +1462,8 @@ async def _process_single_report(
 @router.post("/reports/process")
 async def process_reports(
     exchange_rate: float = 12.5,
-    tax_rate: float = 12,
-    fee_rate: float = 7,
+    tax_rate: float = 7,
+    fee_rate: float = 12,
     db: AsyncSession = Depends(get_db),
 ):
     """Process the latest platform report → multi-sheet Excel download.
