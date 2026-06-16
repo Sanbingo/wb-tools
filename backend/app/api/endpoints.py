@@ -713,13 +713,32 @@ async def fetch_and_process(
     await db.commit()
     await db.refresh(report)
     
-    # Use shared processing function (same logic as manual upload)
+    # Use shared processing function — merge API report with any existing uploaded reports
     purchase_data = await _load_purchase_data(db)
-    result = await _process_single_report(
-        source_path, purchase_data,
+
+    # Collect all existing platform file paths (not already being deleted)
+    existing_result = await db.execute(
+        select(UploadedReport)
+        .where(UploadedReport.file_type == "platform")
+        .where(UploadedReport.file_path.isnot(None))
+        .where(UploadedReport.id != report.id)
+    )
+    existing_reports = existing_result.scalars().all()
+    all_paths = []
+    all_cleanup_ids = [report.id]
+    all_cleanup_paths = [source_path]
+    for er in existing_reports:
+        if os.path.exists(er.file_path):
+            all_paths.append(er.file_path)
+            all_cleanup_ids.append(er.id)
+            all_cleanup_paths.append(er.file_path)
+    all_paths.append(source_path)
+
+    result = await _process_reports(
+        all_paths, purchase_data,
         exchange_rate, tax_rate, fee_rate, db,
-        cleanup_ids=[report.id],
-        cleanup_paths=[source_path],
+        cleanup_ids=all_cleanup_ids,
+        cleanup_paths=all_cleanup_paths,
     )
     result["stats"]["start_date"] = start_date
     result["stats"]["end_date"] = end_date
@@ -1240,8 +1259,8 @@ async def _load_purchase_data(db: AsyncSession) -> dict:
     return purchase_data
 
 
-async def _process_single_report(
-    file_path: str,
+async def _process_reports(
+    file_paths: list,
     purchase_data: dict,
     exchange_rate: float,
     tax_rate: float,
@@ -1250,17 +1269,30 @@ async def _process_single_report(
     cleanup_ids: list = None,
     cleanup_paths: list = None,
 ) -> dict:
-    """Process a WB report Excel file into multi-sheet output.
-    Returns dict with status, filename, download_url, stats.
+    """Process one or more WB report Excel files into multi-sheet output.
+    Multiple files are merged (same product aggregated). Returns dict with status, filename, download_url, stats.
     """
     try:
-        wb_in = load_workbook(file_path, data_only=True)
-        raw_sheet = wb_in[wb_in.sheetnames[0]]
-        rows_raw = list(raw_sheet.iter_rows(values_only=True))
-        if not rows_raw:
-            raise HTTPException(status_code=400, detail="工作表为空")
+        # Read all files and merge rows
+        all_raw_rows = []
+        master_headers = None
+        for fp in file_paths:
+            wb_in = load_workbook(fp, data_only=True)
+            raw_sheet = wb_in[wb_in.sheetnames[0]]
+            rows = list(raw_sheet.iter_rows(values_only=True))
+            if not rows:
+                continue
+            if master_headers is None:
+                master_headers = [str(c or "").strip().lower() for c in rows[0]]
+                all_raw_rows.append(rows[0])  # header row once
+            # skip header for subsequent files
+            all_raw_rows.extend(rows[1:])
 
-        raw_headers = [str(c or "").strip().lower() for c in rows_raw[0]]
+        rows_raw = all_raw_rows
+        if not rows_raw or master_headers is None:
+            raise HTTPException(status_code=400, detail="所有工作表为空或文件格式不一致")
+
+        raw_headers = master_headers
         cn_headers = [HEADER_MAP.get(h, h) for h in raw_headers]
         col_idx = {h: i for i, h in enumerate(cn_headers)}
 
@@ -1295,6 +1327,20 @@ async def _process_single_report(
                 translated = PAYMENT_TYPE_MAP.get(orig, new_row[payment_col])
                 new_row[payment_col] = translated
             processed_rows.append(new_row)
+
+        # Deduplicate by gi_id (报告编号/№) to avoid double-counting same orders across merged files
+        gi_id_col = col_idx.get("报告编号", -1)
+        if gi_id_col >= 0:
+            seen = set()
+            deduped = []
+            for row in processed_rows:
+                gi_id = str(get_val(row, gi_id_col) or "").strip()
+                if gi_id and gi_id in seen:
+                    continue
+                if gi_id:
+                    seen.add(gi_id)
+                deduped.append(row)
+            processed_rows = deduped
 
         ws_proc = wb_out.active
         ws_proc.title = "初处理"
@@ -1473,30 +1519,36 @@ async def process_reports(
     fee_rate: float = 12,
     db: AsyncSession = Depends(get_db),
 ):
-    """Process the latest platform report → multi-sheet Excel download.
+    """Process ALL uploaded platform reports → one merged multi-sheet Excel download.
     Uses latest purchase file for cost/head_freight if available.
+    Same product across multiple files is aggregated; duplicate orders (by gi_id) are deduplicated.
     Accepts: exchange_rate, tax_rate(%), fee_rate(%).
     """
-    # Find latest platform report
+    # Find all platform reports
     result = await db.execute(
         select(UploadedReport)
         .where(UploadedReport.file_type == "platform")
         .where(UploadedReport.file_path.isnot(None))
         .order_by(desc(UploadedReport.uploaded_at))
-        .limit(1)
     )
-    report = result.scalar_one_or_none()
-    if not report:
+    reports = result.scalars().all()
+    if not reports:
         raise HTTPException(status_code=404, detail="没有找到已上传的平台报表")
-    
-    file_path = report.file_path
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail=f"平台文件不存在: {file_path}")
 
-    # Find latest purchase file — 3 columns: 品名, 单套货本, 单套头程
+    file_paths = []
+    cleanup_ids = []
+    cleanup_paths = []
+    for r in reports:
+        if os.path.exists(r.file_path):
+            file_paths.append(r.file_path)
+            cleanup_ids.append(r.id)
+            cleanup_paths.append(r.file_path)
+
+    if not file_paths:
+        raise HTTPException(status_code=404, detail="已上传的平台报表文件都不存在")
+
     purchase_data = await _load_purchase_data(db)
-    
-    return await _process_single_report(file_path, purchase_data, exchange_rate, tax_rate, fee_rate, db, cleanup_ids=[report.id], cleanup_paths=[file_path])
+    return await _process_reports(file_paths, purchase_data, exchange_rate, tax_rate, fee_rate, db, cleanup_ids=cleanup_ids, cleanup_paths=cleanup_paths)
 
 
 @router.get("/reports/process/download/{filename}")
