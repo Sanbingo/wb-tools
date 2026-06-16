@@ -1381,16 +1381,15 @@ async def _process_single_report(
             cost_total = round(cost_per_unit * qty, 2)
             head_total = round(head_per_unit * qty, 2)
             label_total_rub = round(label_cost_rub * qty, 2)
-            label_total_cny = round(label_total_rub / exchange_rate, 2)  # 换算为人民币
 
-            total_sum = round(for_pay - logistics - storage_fee - cost_total - head_total, 2)
+            total_sum = round(for_pay - logistics - storage_fee - label_total_rub, 2)
             after_tax = round(total_sum * tax_factor, 2)
             to_cny = round(after_tax / exchange_rate, 2)
 
-            total_profit = round(to_cny - cost_total - head_total - label_total_cny, 2)
+            total_profit = round(after_tax - cost_total - head_total, 2)
             profit_data.append([code, int(qty), avg_price, round(for_pay, 2),
                                 0, avg_log, round(logistics, 2), storage_fee,
-                                cost_per_unit, head_per_unit, label_cost_rub, cost_total, head_total, label_total_cny,
+                                cost_per_unit, head_per_unit, label_cost_rub, cost_total, head_total, label_total_rub,
                                 total_sum, after_tax, to_cny,
                                 total_profit,
                                 round(total_profit / qty, 2) if qty > 0 else 0])
@@ -1398,8 +1397,8 @@ async def _process_single_report(
         ws_profit = wb_out.create_sheet("利润表")
         profit_h = ["品名", "数量", "平均单套售价", "支付金额",
                     "退货金额", "平均单套物流", "物流费", "仓储费",
-                    "单套货本", "单套头程", "单套标签(₽)", "货本总计", "头程总计", "标签总计(¥)",
-                    "一个型号总和", "扣税和手续费后", "汇率转人民币", "总利润", "单个利润"]
+                    "单套货本", "单套头程", "单套标签(₽)", "货本总计", "头程总计", "标签总计(₽)",
+                    "总和", "扣税和手续费后", "汇率转人民币", "总利润", "单个利润"]
         ws_profit.append(profit_h)
         for row in profit_data:
             ws_profit.append(row)
