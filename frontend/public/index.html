@@ -288,7 +288,6 @@ function Page(props) {
 
   var tabs = [
     {key:'manual', label:'📎 手动处理'},
-    {key:'auto', label:'🚀 自动分析'},
   ];
 
   return h('div',null,
@@ -306,9 +305,7 @@ function Page(props) {
       })
     ),
     h('div',{className:'container'},
-      tab === 'manual'
-        ? h(ManualTab,{er:er,tr:tr,fr:fr,setEr:setEr,setTr:setTr,setFr:setFr})
-        : h(AutoFetchTab,{er:er,tr:tr,fr:fr,setEr:setEr,setTr:setTr,setFr:setFr})
+      h(ManualTab,{er:er,tr:tr,fr:fr,setEr:setEr,setTr:setTr,setFr:setFr})
     )
   );
 }
