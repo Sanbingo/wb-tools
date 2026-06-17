@@ -1390,6 +1390,8 @@ async def _process_reports(
             elif pv == "物流":
                 lc = float(get_val(row, logistics_col) or 0)
                 p["logistics"] += lc
+                rq = float(get_val(row, return_qty_col) or 0)
+                p["return_qty"] += rq
             elif pv == "退货":
                 ret_amt = float(get_val(row, for_pay_col) or 0)
                 p["return_amount"] += ret_amt
@@ -1427,9 +1429,12 @@ async def _process_reports(
             after_tax = round(total_sum * tax_factor, 2)
             to_cny = round(after_tax / exchange_rate, 2)
 
+            return_qty = int(p["return_qty"])
+            conversion_rate = round(qty / (qty + return_qty) * 100, 1) if (qty + return_qty) > 0 else 100.0
+
             total_profit = round(to_cny - cost_total - head_total, 2)
             profit_data.append([code, int(qty), avg_price, round(for_pay, 2),
-                                round(p["return_amount"], 2), avg_log, round(logistics, 2), storage_fee,
+                                round(p["return_amount"], 2), return_qty, conversion_rate, avg_log, round(logistics, 2), storage_fee,
                                 cost_per_unit, head_per_unit, label_cost_rub, cost_total, head_total, label_total_rub,
                                 total_sum, after_tax, to_cny,
                                 total_profit,
@@ -1437,12 +1442,20 @@ async def _process_reports(
 
         ws_profit = wb_out.create_sheet("利润表")
         profit_h = ["品名", "数量", "平均单套售价", "支付金额",
-                    "退货金额", "平均单套物流", "物流费", "仓储费",
+                    "退货金额", "退货数量", "成交率%", "平均单套物流", "物流费", "仓储费",
                     "单套货本", "单套头程", "单套标签(₽)", "货本总计", "头程总计", "标签总计(₽)",
                     "总和", "扣税和手续费后", "汇率转人民币", "总利润", "单个利润"]
         ws_profit.append(profit_h)
-        for row in profit_data:
-            ws_profit.append(row)
+        red_fill = PatternFill("solid", fgColor="FF4444")
+        red_font = Font(color="FFFFFF", bold=True)
+        for row_data in profit_data:
+            ws_profit.append(row_data)
+            # Color the conversion rate cell red if below 70%
+            row_num = ws_profit.max_row
+            conversion_cell = ws_profit.cell(row=row_num, column=7)
+            if isinstance(conversion_cell.value, (int, float)) and conversion_cell.value < 70:
+                conversion_cell.fill = red_fill
+                conversion_cell.font = red_font
         style_header(ws_profit)
         auto_width(ws_profit)
 
