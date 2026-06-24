@@ -1189,7 +1189,7 @@ def extract_product_code(barcode):
 
 
 def style_header(ws, row=1):
-    hf = Font(bold=True, color="FFFFFF", size=11)
+    hf = Font(name='Calibri', bold=True, color="FFFFFF", size=11)
     hfill = PatternFill("solid", fgColor="4472C4")
     thin = Side(style='thin', color='D9D9D9')
     border = Border(bottom=thin)
@@ -1297,6 +1297,7 @@ async def _process_reports(
         col_idx = {h: i for i, h in enumerate(cn_headers)}
 
         wb_out = Workbook()
+        wb_out._named_styles['Normal'].font = Font(name='Calibri', size=11)
 
         payment_col = col_idx.get("付款依据", -1)
         barcode_col = col_idx.get("条形码", -1)
@@ -1433,18 +1434,29 @@ async def _process_reports(
             conversion_rate = round(qty / (qty + return_qty) * 100, 1) if (qty + return_qty) > 0 else 100.0
 
             total_profit = round(to_cny - cost_total - head_total, 2)
+            # 单套仓储费 = 仓储费 / 数量
+            storage_per_unit_val = round(storage_per_unit, 2)
+
             profit_data.append([code, int(qty), avg_price, round(for_pay, 2),
-                                round(p["return_amount"], 2), return_qty, conversion_rate, avg_log, round(logistics, 2), storage_fee,
-                                cost_per_unit, head_per_unit, label_cost_rub, cost_total, head_total, label_total_rub,
+                                round(p["return_amount"], 2), return_qty, conversion_rate,
+                                avg_log, round(logistics, 2),
+                                storage_per_unit_val, storage_fee,
+                                label_cost_rub, label_total_rub,
                                 total_sum, after_tax, to_cny,
+                                cost_per_unit, head_per_unit,
+                                cost_total, head_total,
                                 total_profit,
                                 round(total_profit / qty, 2) if qty > 0 else 0])
 
         ws_profit = wb_out.create_sheet("利润表")
         profit_h = ["品名", "数量", "平均单套售价", "支付金额",
-                    "退货金额", "退货数量", "成交率%", "平均单套物流", "物流费", "仓储费",
-                    "单套货本", "单套头程", "单套标签(₽)", "货本总计", "头程总计", "标签总计(₽)",
-                    "总和", "扣税和手续费后", "汇率转人民币", "总利润", "单个利润"]
+                    "退货金额", "退货数量", "成交率%", "平均单套物流", "物流费",
+                    "单套仓储费", "仓储费",
+                    "单套标签(₽)", "标签总计(₽)",
+                    "总和", "扣税和手续费后", "汇率转人民币",
+                    "单套货本", "单套头程",
+                    "货本总计", "头程总计",
+                    "总利润", "单个利润"]
         ws_profit.append(profit_h)
         red_fill = PatternFill("solid", fgColor="FF4444")
         red_font = Font(color="FFFFFF", bold=True)
