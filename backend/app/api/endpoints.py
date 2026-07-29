@@ -1306,7 +1306,7 @@ async def _process_reports(
         for_pay_col = col_idx.get("支付给卖家的已售商品金额", -1)
         retail_col = col_idx.get("零售价", -1)
         delivery_qty_col = col_idx.get("交付数量", -1)
-        return_qty_col = col_idx.get("退货数量", -1)
+        return_qty_col = col_idx.get("拒收数量", -1)
         logistics_col = col_idx.get("向买家交付货物的服务", -1)
         storage_col = col_idx.get("仓储费", -1)
         deduct_col = col_idx.get("扣款", -1)
