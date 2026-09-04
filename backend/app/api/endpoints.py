@@ -1166,15 +1166,17 @@ PAYMENT_TYPE_MAP = {
     "хранение": "仓储",
     "штраф": "罚款",
     "возврат": "退货",
+    "обработка товара": "FBS入库验收",
 }
 
 CATEGORY_COLUMNS = {
     "销售": ["条形码", "付款依据", "销售日期", "数量", "零售价", "支付给卖家的已售商品金额"],
-    "物流": ["条形码", "付款依据", "销售日期", "交付数量", "拒收数量", "向买家交付货物的服务"],
+    "物流": ["条形码", "付款依据", "销售日期", "交付数量", "拒收数量", "向买家交付货物的服务", "销售方式与商品类型"],
     "仓储": ["付款依据", "销售日期", "仓储费"],
     "广告": ["付款依据", "销售日期", "wb物流罚款调整类型", "扣款"],
     "罚款": ["付款依据", "销售日期", "罚款总额", "wb物流罚款调整类型"],
     "退货": ["条形码", "付款依据", "销售日期", "数量", "支付给卖家的已售商品金额", "退货数量"],
+    "FBS入库验收": ["条形码", "付款依据", "销售日期", "入库验收操作"],
 }
 
 
@@ -1312,6 +1314,7 @@ async def _process_reports(
         deduct_col = col_idx.get("扣款", -1)
         penalty_col = col_idx.get("罚款总额", -1)
         adj_type_col = col_idx.get("wb物流罚款调整类型", -1)
+        acceptance_col = col_idx.get("入库验收操作", -1)
 
         def get_val(row, idx):
             if idx >= 0 and idx < len(row):
@@ -1341,7 +1344,7 @@ async def _process_reports(
         auto_width(ws_proc)
 
         # Category sheets
-        categorized = {"销售": [], "物流": [], "仓储": [], "广告": [], "罚款": [], "退货": []}
+        categorized = {"销售": [], "物流": [], "仓储": [], "广告": [], "罚款": [], "退货": [], "FBS入库验收": []}
         for row in processed_rows:
             pv = str(get_val(row, payment_col) or "").strip()
             if pv in categorized:
@@ -1349,11 +1352,12 @@ async def _process_reports(
 
         CATS = {
             "销售": ["条形码", "付款依据", "销售日期", "数量", "零售价", "支付给卖家的已售商品金额"],
-            "物流": ["条形码", "付款依据", "销售日期", "交付数量", "拒收数量", "向买家交付货物的服务"],
+            "物流": ["条形码", "付款依据", "销售日期", "交付数量", "拒收数量", "向买家交付货物的服务", "销售方式与商品类型"],
             "仓储": ["付款依据", "销售日期", "仓储费"],
             "广告": ["付款依据", "销售日期", "wb物流罚款调整类型", "扣款"],
             "罚款": ["付款依据", "销售日期", "罚款总额", "wb物流罚款调整类型"],
             "退货": ["条形码", "付款依据", "销售日期", "数量", "支付给卖家的已售商品金额", "退货数量"],
+            "FBS入库验收": ["条形码", "付款依据", "销售日期", "入库验收操作"],
         }
 
         for cat_name, cat_rows in categorized.items():
@@ -1379,7 +1383,8 @@ async def _process_reports(
                 continue
             if code not in products:
                 products[code] = {"code": code, "name": product_name, "barcode": barcode, "qty": 0, "for_pay": 0.0,
-                                  "logistics": 0.0, "delivery_qty": 0, "return_qty": 0, "return_amount": 0.0}
+                                  "logistics": 0.0, "delivery_qty": 0, "return_qty": 0, "return_amount": 0.0,
+                                  "acceptance_fee": 0.0}
             p = products[code]
             if product_name and not p["name"]:
                 p["name"] = product_name
@@ -1396,6 +1401,9 @@ async def _process_reports(
             elif pv == "退货":
                 ret_amt = float(get_val(row, for_pay_col) or 0)
                 p["return_amount"] += ret_amt
+            elif pv == "FBS入库验收":
+                acc = float(get_val(row, acceptance_col) or 0)
+                p["acceptance_fee"] += acc
 
         total_storage = sum(
             float(get_val(row, storage_col) or 0)
@@ -1426,7 +1434,7 @@ async def _process_reports(
             head_total = round(head_per_unit * qty, 2)
             label_total_rub = round(label_cost_rub * qty, 2)
 
-            total_sum = round(for_pay - logistics - storage_fee - label_total_rub - p["return_amount"], 2)
+            total_sum = round(for_pay - logistics - storage_fee - label_total_rub - p["return_amount"] - p["acceptance_fee"], 2)
             after_tax = round(total_sum * tax_factor, 2)
             to_cny = round(after_tax / exchange_rate, 2)
 
@@ -1440,6 +1448,7 @@ async def _process_reports(
             profit_data.append([code, int(qty), avg_price, round(for_pay, 2),
                                 round(p["return_amount"], 2), return_qty, conversion_rate,
                                 avg_log, round(logistics, 2),
+                                round(p["acceptance_fee"], 2),
                                 storage_per_unit_val, storage_fee,
                                 label_cost_rub, label_total_rub,
                                 total_sum, after_tax, to_cny,
@@ -1451,6 +1460,7 @@ async def _process_reports(
         ws_profit = wb_out.create_sheet("利润表")
         profit_h = ["品名", "数量", "平均单套售价", "支付金额",
                     "退货金额", "拒收数量", "成交率%", "平均单套物流", "物流费",
+                    "入库验收费用",
                     "单套仓储费", "仓储费",
                     "单套标签(₽)", "标签总计(₽)",
                     "总和", "扣税和手续费后", "汇率转人民币",
