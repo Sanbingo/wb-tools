@@ -1161,15 +1161,35 @@ HEADER_MAP = {
 # Payment type translation
 PAYMENT_TYPE_MAP = {
     "продажа": "销售",
-    "логистика": "物流",
-    "удержание": "广告",
-    "хранение": "仓储",
+    "логистика": "物流费",
+    "удержание": "平台扣款",
+    "хранение": "仓储费",
     "штраф": "罚款",
-    "возврат": "退货",
-    "обработка товара": "FBS入库验收",
-    "сумма баллов, удержанных в рамках акции \"баллы за отзывы\"": "在\"评论积分\"活动中被扣除的积分总额",
+    "возврат": "退货 / 退款",
+    "доставка": "配送费",
+    "обработка товара": "入库验收",
+    "коррекция продаж": "销售调整",
     "коррекция хранения": "仓储校正",
-    "стоимость участия в программе лояльности": "参与忠诚度计划费用",
+    "сумма баллов, удержанных в рамках акции \"баллы за отзывы\"": "\"评价有礼\" 活动扣除的积分金额",
+    "стоимость участия в программе лояльности": "忠诚度计划参与费用（会员 / 订阅折扣成本）",
+    "коррекция компенсации скидки по программе лояльности": "忠诚度计划折扣补偿费的调整",
+    "компенсация скидки по программе лояльности": "忠诚度计划折扣补偿（费）",
+    "возмещение издержек по перемещению и операционной обработке товара": "商品移动（调拨）与运营处理费用的补偿",
+    "возмещение издержек по перевозке/по складским операциям с товаром": "运输费用 / 仓储操作费用的补偿",
+    "возмещение за выдачу и возврат товаров на пвз": "自提点商品发放与退货的费用补偿",
+}
+
+# 付款依据 → 分类归属：翻译后的中文值 → 分类类别。
+# 与 PAYMENT_TYPE_MAP 解耦：翻译显示文字可自由调整，分类表名(销售/物流/仓储/广告/罚款/退货/FBS入库验收)
+# 与利润聚合逻辑保持稳定，不受翻译文案变化影响。未列入此表的值仅翻译、不进入任何分类表。
+PAYMENT_CATEGORY_MAP = {
+    "销售": "销售",
+    "物流费": "物流",
+    "仓储费": "仓储",
+    "平台扣款": "广告",
+    "罚款": "罚款",
+    "退货 / 退款": "退货",
+    "入库验收": "FBS入库验收",
 }
 
 CATEGORY_COLUMNS = {
@@ -1350,8 +1370,9 @@ async def _process_reports(
         categorized = {"销售": [], "物流": [], "FBS入库验收": [], "仓储": [], "广告": [], "罚款": [], "退货": []}
         for row in processed_rows:
             pv = str(get_val(row, payment_col) or "").strip()
-            if pv in categorized:
-                categorized[pv].append(row)
+            cat = PAYMENT_CATEGORY_MAP.get(pv)
+            if cat:
+                categorized[cat].append(row)
 
         CATS = {
             "销售": ["条形码", "付款依据", "销售日期", "数量", "零售价", "支付给卖家的已售商品金额"],
@@ -1379,6 +1400,7 @@ async def _process_reports(
         products = {}
         for row in processed_rows:
             pv = str(get_val(row, payment_col) or "").strip()
+            cat = PAYMENT_CATEGORY_MAP.get(pv)
             barcode = str(get_val(row, barcode_col) or "")
             code = extract_product_code(barcode)
             product_name = str(get_val(row, product_name_col) or "").strip() if product_name_col >= 0 else ""
@@ -1391,27 +1413,27 @@ async def _process_reports(
             p = products[code]
             if product_name and not p["name"]:
                 p["name"] = product_name
-            if pv == "销售":
+            if cat == "销售":
                 qty = float(get_val(row, qty_col) or 0)
                 fp = float(get_val(row, for_pay_col) or 0)
                 p["qty"] += qty
                 p["for_pay"] += fp
-            elif pv == "物流":
+            elif cat == "物流":
                 lc = float(get_val(row, logistics_col) or 0)
                 p["logistics"] += lc
                 rq = float(get_val(row, return_qty_col) or 0)
                 p["return_qty"] += rq
-            elif pv == "退货":
+            elif cat == "退货":
                 ret_amt = float(get_val(row, for_pay_col) or 0)
                 p["return_amount"] += ret_amt
-            elif pv == "FBS入库验收":
+            elif cat == "FBS入库验收":
                 acc = float(get_val(row, acceptance_col) or 0)
                 p["acceptance_fee"] += acc
 
         total_storage = sum(
             float(get_val(row, storage_col) or 0)
             for row in processed_rows
-            if str(get_val(row, payment_col) or "").strip() == "仓储"
+            if PAYMENT_CATEGORY_MAP.get(str(get_val(row, payment_col) or "").strip()) == "仓储"
         )
         total_qty = sum(p["qty"] for p in products.values()) or 1
         storage_per_unit = total_storage / total_qty
