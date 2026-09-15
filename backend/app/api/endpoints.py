@@ -1423,7 +1423,7 @@ async def _process_reports(
             if code not in products:
                 products[code] = {"code": code, "name": product_name, "barcode": barcode, "qty": 0, "for_pay": 0.0,
                                   "logistics": 0.0, "delivery_qty": 0, "return_qty": 0, "return_amount": 0.0,
-                                  "acceptance_fee": 0.0}
+                                  "acceptance_fee": 0.0, "sales_adj": 0.0}
             p = products[code]
             if product_name and not p["name"]:
                 p["name"] = product_name
@@ -1432,6 +1432,8 @@ async def _process_reports(
                 fp = float(get_val(row, for_pay_col) or 0)
                 p["qty"] += qty
                 p["for_pay"] += fp
+            elif cat == "销售调整":
+                p["sales_adj"] += float(get_val(row, for_pay_col) or 0)
             elif cat == "物流":
                 lc = float(get_val(row, logistics_col) or 0)
                 p["logistics"] += lc
@@ -1473,7 +1475,7 @@ async def _process_reports(
             head_total = round(head_per_unit * qty, 2)
             label_total_rub = round(label_cost_rub * qty, 2)
 
-            total_sum = round(for_pay - logistics - storage_fee - label_total_rub - p["return_amount"] - p["acceptance_fee"], 2)
+            total_sum = round(for_pay + p["sales_adj"] - p["return_amount"] - logistics - p["acceptance_fee"] - storage_fee - label_total_rub, 2)
             after_tax = round(total_sum * tax_factor, 2)
             to_cny = round(after_tax / exchange_rate, 2)
 
@@ -1485,6 +1487,7 @@ async def _process_reports(
             storage_per_unit_val = round(storage_per_unit, 2)
 
             profit_data.append([code, int(qty), avg_price, round(for_pay, 2),
+                                round(p["sales_adj"], 2),
                                 round(p["return_amount"], 2), return_qty, conversion_rate,
                                 avg_log, round(logistics, 2),
                                 round(p["acceptance_fee"], 2),
@@ -1496,8 +1499,8 @@ async def _process_reports(
                                 total_profit,
                                 round(total_profit / qty, 2) if qty > 0 else 0])
 
-        ws_profit = wb_out.create_sheet("利润表")
-        profit_h = ["品名", "数量", "平均单套售价", "支付金额",
+        ws_profit = wb_out.create_sheet("利润总表")
+        profit_h = ["品名", "数量", "平均单套售价", "支付金额", "销售调整",
                     "退货金额", "拒收数量", "成交率%", "平均单套物流", "物流费",
                     "入库验收费用",
                     "单套仓储费", "仓储费",
@@ -1511,12 +1514,27 @@ async def _process_reports(
         red_font = Font(color="FFFFFF", bold=True)
         for row_data in profit_data:
             ws_profit.append(row_data)
-            # Color the conversion rate cell red if below 70%
+            # 成交率% 现在在第8列(插入"销售调整"后)，<70% 标红
             row_num = ws_profit.max_row
-            conversion_cell = ws_profit.cell(row=row_num, column=7)
+            conversion_cell = ws_profit.cell(row=row_num, column=8)
             if isinstance(conversion_cell.value, (int, float)) and conversion_cell.value < 70:
                 conversion_cell.fill = red_fill
                 conversion_cell.font = red_font
+        # 求和行(标黄): D(4)支付金额 E(5)销售调整 J(10)物流费 K(11)入库验收费用 M(13)仓储费 O(15)标签总计 P(16)总和 U(21)货本总计 V(22)头程总计
+        sum_cols = [4, 5, 10, 11, 13, 15, 16, 21, 22]
+        sum_row = ws_profit.max_row + 1
+        ws_profit.cell(row=sum_row, column=1, value="求和")
+        yellow_fill = PatternFill("solid", fgColor="FFFF00")
+        sum_font = Font(bold=True)
+        for c in sum_cols:
+            total = 0.0
+            for r in range(2, sum_row):
+                v = ws_profit.cell(row=r, column=c).value
+                if isinstance(v, (int, float)):
+                    total += v
+            cell = ws_profit.cell(row=sum_row, column=c, value=round(total, 2))
+            cell.fill = yellow_fill
+            cell.font = sum_font
         style_header(ws_profit)
         auto_width(ws_profit)
 
