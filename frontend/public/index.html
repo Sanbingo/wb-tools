@@ -345,7 +345,7 @@ var INV_T = {
     ungrouped: '未分组', outOfStock: '⚠️ 缺货', delTitle: '删除',
     hint: '💡 正品 / 次品库存均可直接编辑，回车或点击空白处保存　|　红色行 = 正品为 0',
     delPrep: '确认删除编码「', delSuf: '」？此操作不可恢复。',
-    summary: function(n,t){ return '共 '+n+' 个编码　总库存 '+t; },
+    summary: function(n,g,d,t){ return '共 '+n+' 个编码　正品库存 '+g+'　次品库存 '+d+'　总库存 '+t; },
     zeroWarn: function(z){ return '　⚠️ '+z+' 个缺货'; },
     groupHead: function(name,n){ return '🏷️ '+name+'（'+n+' 个编码）'; },
     exportBtn: '📤 导出 Excel', exportErr: '导出失败，请重试',
@@ -369,7 +369,7 @@ var INV_T = {
     ungrouped: 'Без группы', outOfStock: '⚠️ Нет в наличии', delTitle: 'Удалить',
     hint: '💡 Годный и брак можно редактировать вручную; Enter или клик для сохранения　|　Красная строка = годный остаток 0',
     delPrep: 'Удалить код 「', delSuf: '」？Действие необратимо.',
-    summary: function(n,t){ return 'Всего кодов: '+n+'　Общий остаток: '+t; },
+    summary: function(n,g,d,t){ return 'Всего кодов: '+n+'　Годный: '+g+'　Брак: '+d+'　Общий остаток: '+t; },
     zeroWarn: function(z){ return '　⚠️ Нет в наличии: '+z; },
     groupHead: function(name,n){ return '🏷️ '+name+' (кодов: '+n+')'; },
     exportBtn: '📤 Экспорт в Excel', exportErr: 'Ошибка экспорта, попробуйте снова',
@@ -501,7 +501,9 @@ function InventoryTab(props) {
   var groups = {};
   items.forEach(function(it){ var k = it.product_name || T.ungrouped; if(!groups[k]) groups[k]=[]; groups[k].push(it); });
   var keys = Object.keys(groups);
-  var totalQty = items.reduce(function(s,it){ return s + (it.quantity||0); }, 0);
+  var totalGood = items.reduce(function(s,it){ return s + (it.quantity||0); }, 0);
+  var totalDefect = items.reduce(function(s,it){ return s + (it.defective_quantity||0); }, 0);
+  var totalAll = totalGood + totalDefect;
   var zeroCount = items.filter(function(it){ return (it.quantity||0) === 0; }).length;
 
   return h('div',null,
@@ -563,7 +565,7 @@ function InventoryTab(props) {
         h('div',{className:'card-title',style:{marginBottom:0}},T.invTitle),
         h('div',{style:{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
           h('span',{style:{fontSize:13,color:'#666'}},
-            T.summary(items.length, totalQty),
+            T.summary(items.length, totalGood, totalDefect, totalAll),
             zeroCount>0 ? h('span',{style:{color:'#cf1322',fontWeight:700}},T.zeroWarn(zeroCount)) : null),
           items.length>0 ? h('button',{className:'btn btn-success',style:{padding:'6px 14px',fontSize:13},onClick:exportExcel},T.exportBtn) : null
         )
