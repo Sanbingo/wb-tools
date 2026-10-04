@@ -11,7 +11,7 @@ from pydantic import BaseModel
 import io, os, uuid, glob, tempfile, httpx
 
 from ..database import get_db
-from ..models import Sale, Order, Stock, DailySummary, SyncLog, UploadedReport, User
+from ..models import Sale, Order, Stock, DailySummary, SyncLog, UploadedReport, User, InventoryItem
 from ..services.wb_service import WBService
 from ..config import settings
 
@@ -1643,3 +1643,139 @@ async def download_processed_file(filename: str):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         filename=filename
     )
+
+
+# ── Inventory (库存统计) ──────────────────────────────
+
+class InventoryAddRequest(BaseModel):
+    product_name: str = ""
+    code: str
+    quantity: int = 0
+
+
+class InventoryScanRequest(BaseModel):
+    code: str
+
+
+class InventoryQuantityRequest(BaseModel):
+    quantity: int
+
+
+def _inv_dict(i: InventoryItem) -> dict:
+    return {
+        "id": i.id,
+        "product_name": i.product_name or "",
+        "code": i.code,
+        "quantity": i.quantity or 0,
+        "updated_at": i.updated_at.isoformat() if i.updated_at else None,
+    }
+
+
+@router.get("/inventory/items")
+async def list_inventory(username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """List all inventory items."""
+    result = await db.execute(
+        select(InventoryItem).order_by(InventoryItem.product_name, InventoryItem.code)
+    )
+    items = result.scalars().all()
+    return {"items": [_inv_dict(i) for i in items]}
+
+
+@router.post("/inventory/items")
+async def add_inventory_item(
+    req: InventoryAddRequest,
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Add a new inventory item (product name + code + initial quantity, all user-defined)."""
+    code = (req.code or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="编码不能为空")
+    existing = await db.execute(select(InventoryItem).where(InventoryItem.code == code))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail=f"编码 {code} 已存在")
+    item = InventoryItem(
+        product_name=(req.product_name or "").strip(),
+        code=code,
+        quantity=int(req.quantity or 0),
+    )
+    db.add(item)
+    await db.commit()
+    await db.refresh(item)
+    return {"status": "success", "item": _inv_dict(item)}
+
+
+async def _inventory_scan(db: AsyncSession, code: str, delta: int) -> dict:
+    """Apply a +/- delta to the item matching the scanned code."""
+    code = (code or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="编码不能为空")
+    result = await db.execute(select(InventoryItem).where(InventoryItem.code == code))
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail=f"未找到编码：{code}")
+    item.quantity = (item.quantity or 0) + delta
+    await db.commit()
+    await db.refresh(item)
+    return {"status": "success", "item": _inv_dict(item), "delta": delta}
+
+
+@router.post("/inventory/ship")
+async def inventory_ship(
+    req: InventoryScanRequest,
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """发货：扫描编码，库存 -1（不允许减到负数）。"""
+    code = (req.code or "").strip()
+    result = await db.execute(select(InventoryItem).where(InventoryItem.code == code))
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail=f"未找到编码：{code}")
+    if (item.quantity or 0) <= 0:
+        raise HTTPException(status_code=400, detail=f"库存不足（{code} 当前 0）")
+    return await _inventory_scan(db, code, -1)
+
+
+@router.post("/inventory/return")
+async def inventory_return(
+    req: InventoryScanRequest,
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """退货：扫描编码，库存 +1。"""
+    return await _inventory_scan(db, req.code, 1)
+
+
+@router.post("/inventory/items/{item_id}/quantity")
+async def set_inventory_quantity(
+    item_id: int,
+    req: InventoryQuantityRequest,
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """手动改动：直接设置某编码的库存数量。"""
+    result = await db.execute(select(InventoryItem).where(InventoryItem.id == item_id))
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="库存项不存在")
+    item.quantity = int(req.quantity)
+    await db.commit()
+    await db.refresh(item)
+    return {"status": "success", "item": _inv_dict(item)}
+
+
+@router.post("/inventory/items/{item_id}/delete")
+async def delete_inventory_item(
+    item_id: int,
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """删除某编码库存项。"""
+    result = await db.execute(select(InventoryItem).where(InventoryItem.id == item_id))
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="库存项不存在")
+    await db.delete(item)
+    await db.commit()
+    return {"status": "success"}

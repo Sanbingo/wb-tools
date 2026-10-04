@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <title>WB 财务分析</title>
+  <title>WB系统工具</title>
   <script src="/lib/react.min.js"></script>
   <script src="/lib/react-dom.min.js"></script>
   <style>
@@ -51,7 +51,25 @@
     .login-err { color: #ff4d4f; font-size: 13px; margin-bottom: 12px; }
     .logout-btn { color: #fff; font-size: 13px; cursor: pointer; opacity: .7; padding: 4px 8px; }
     .logout-btn:hover { opacity: 1; }
-    @media (max-width: 768px) { .upload-grid { grid-template-columns: 1fr; } .param-grid { grid-template-columns: 1fr 1fr; } .fetch-grid { grid-template-columns: 1fr 1fr; } .container { padding: 8px; } .card { padding: 16px; } .tab-item { padding: 10px 12px; font-size: 13px; } }
+    /* 库存统计 */
+    .scan-input { width: 100%; padding: 14px 16px; font-size: 20px; border: 2px solid #1677ff; border-radius: 8px; text-align: center; letter-spacing: 1px; font-family: monospace; }
+    .scan-input:focus { outline: none; box-shadow: 0 0 0 3px rgba(22,119,255,.2); }
+    .btn-ghost { background: #f5f5f5; color: #333; }
+    .btn-ghost:hover { background: #e8e8e8; }
+    .scan-fb { margin-top: 12px; padding: 10px 14px; border-radius: 6px; font-size: 14px; font-weight: 600; }
+    .scan-fb.ok { background: #f6ffed; border: 1px solid #b7eb8f; color: #389e0d; }
+    .scan-fb.bad { background: #fff1f0; border: 1px solid #ffa39e; color: #cf1322; }
+    .inv-add-grid { display: grid; grid-template-columns: 1fr 1fr 120px auto; gap: 12px; align-items: end; }
+    .inv-group-head { font-size: 14px; font-weight: 600; color: #333; margin-bottom: 6px; }
+    .inv-table { width: 100%; border-collapse: collapse; }
+    .inv-table td { padding: 8px 10px; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
+    .inv-table tr.inv-zero td { background: #fff1f0; }
+    .inv-qty-input { width: 100%; padding: 5px 8px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 14px; text-align: center; }
+    .inv-qty-input:focus { outline: none; border-color: #1677ff; box-shadow: 0 0 0 2px rgba(22,119,255,.1); }
+    .inv-zero-tag { color: #cf1322; font-weight: 700; font-size: 12px; }
+    .inv-del { color: #bbb; cursor: pointer; font-size: 16px; }
+    .inv-del:hover { color: #ff4d4f; }
+    @media (max-width: 768px) { .upload-grid { grid-template-columns: 1fr; } .param-grid { grid-template-columns: 1fr 1fr; } .fetch-grid { grid-template-columns: 1fr 1fr; } .inv-add-grid { grid-template-columns: 1fr 1fr; } .container { padding: 8px; } .card { padding: 16px; } .tab-item { padding: 10px 12px; font-size: 13px; } }
   </style>
 </head>
 <body>
@@ -97,7 +115,7 @@ function LoginPage(props) {
   return h('div',{className:'login-overlay'},
     h('div',{className:'login-box'},
       h('div',{className:'icon'},'📊'),
-      h('h2',null,'WB 财务分析'),
+      h('h2',null,'WB系统工具'),
       h('div',{className:'sub'},'登录您的账号'),
       err ? h('div',{className:'login-err'},err) : null,
       h('input',{className:'login-input',type:'text',placeholder:'用户名',value:user,onChange:function(e){setUser(e.target.value);setErr('');}}),
@@ -278,21 +296,226 @@ function AutoFetchTab(props) {
   );
 }
 
+var INV_T = {
+  zh: {
+    scanTitle: '🔫 扫描操作',
+    ship: '🚀 发货（-1）', rtn: '↩️ 退货（+1）',
+    modeShip: '当前模式：发货 —— 扫描包装条形码，对应编码库存 -1',
+    modeReturn: '当前模式：退货 —— 扫描退货二维码，对应编码库存 +1',
+    scanPh: '扫描枪扫描 / 手动输入编码后回车',
+    shipOk: '发货成功', rtnOk: '退货成功', notFound: '未找到编码', insufficient: '库存不足（当前 0）',
+    failed: '失败', netErr: '网络错误', needCode: '请填写编码', codeExists: '该编码已存在',
+    addTitle: '➕ 添加产品 / 编码', expand: '展开', collapse: '收起',
+    pname: '产品名', code: '编码', initQty: '初始库存', add: '添加',
+    phName: '如 SHLD-15', phCode: '如 SHLD-15-L',
+    invTitle: '📦 库存统计', noData: '暂无库存数据，请先「添加产品 / 编码」',
+    ungrouped: '未分组', outOfStock: '⚠️ 缺货', delTitle: '删除',
+    hint: '💡 库存数量可直接编辑（手动改动），回车或点击空白处保存　|　红色行 = 库存为 0',
+    delPrep: '确认删除编码「', delSuf: '」？此操作不可恢复。',
+    summary: function(n,t){ return '共 '+n+' 个编码　总库存 '+t; },
+    zeroWarn: function(z){ return '　⚠️ '+z+' 个缺货'; },
+    groupHead: function(name,n){ return '🏷️ '+name+'（'+n+' 个编码）'; },
+    fb: function(ok,mode,code,msg,qty){ return (ok?'✅ ':'❌ ')+(mode==='ship'?'发货':'退货')+'　'+code+'　—　'+msg+(qty!=null?'（现库存 '+qty+'）':''); }
+  },
+  ru: {
+    scanTitle: '🔫 Сканирование',
+    ship: '🚀 Отгрузка (-1)', rtn: '↩️ Возврат (+1)',
+    modeShip: 'Режим: Отгрузка — сканируйте штрихкод упаковки, остаток -1',
+    modeReturn: 'Режим: Возврат — сканируйте QR-код возврата, остаток +1',
+    scanPh: 'Сканируйте или введите код и нажмите Enter',
+    shipOk: 'Отгрузка выполнена', rtnOk: 'Возврат выполнен', notFound: 'Код не найден', insufficient: 'Недостаточно остатка (текущий 0)',
+    failed: 'Ошибка', netErr: 'Ошибка сети', needCode: 'Введите код', codeExists: 'Такой код уже существует',
+    addTitle: '➕ Добавить товар / код', expand: 'Развернуть', collapse: 'Свернуть',
+    pname: 'Название товара', code: 'Код', initQty: 'Начальный остаток', add: 'Добавить',
+    phName: 'напр. SHLD-15', phCode: 'напр. SHLD-15-L',
+    invTitle: '📦 Складской учёт', noData: 'Нет данных. Сначала добавьте товар / код',
+    ungrouped: 'Без группы', outOfStock: '⚠️ Нет в наличии', delTitle: 'Удалить',
+    hint: '💡 Остаток можно редактировать вручную; Enter или клик для сохранения　|　Красная строка = остаток 0',
+    delPrep: 'Удалить код 「', delSuf: '」？Действие необратимо.',
+    summary: function(n,t){ return 'Всего кодов: '+n+'　Общий остаток: '+t; },
+    zeroWarn: function(z){ return '　⚠️ Нет в наличии: '+z; },
+    groupHead: function(name,n){ return '🏷️ '+name+' (кодов: '+n+')'; },
+    fb: function(ok,mode,code,msg,qty){ return (ok?'✅ ':'❌ ')+(mode==='ship'?'Отгрузка':'Возврат')+'　'+code+'　—　'+msg+(qty!=null?' (остаток: '+qty+')':''); }
+  }
+};
+
+function InventoryTab(props) {
+  var LG = useState(localStorage.getItem('wb_inv_lang') || 'zh'), lang = LG[0], setLang = LG[1];
+  function setL(l){ setLang(l); try { localStorage.setItem('wb_inv_lang', l); } catch(e){} }
+  var T = INV_T[lang] || INV_T.zh;
+  var S1 = useState([]), items = S1[0], setItems = S1[1];
+  var S2 = useState('ship'), mode = S2[0], setMode = S2[1];
+  var S3 = useState(''), scanVal = S3[0], setScanVal = S3[1];
+  var S4 = useState(null), fb = S4[0], setFb = S4[1];
+  var S5 = useState(''), np = S5[0], setNp = S5[1];
+  var S6 = useState(''), nc = S6[0], setNc = S6[1];
+  var S7 = useState(''), nq = S7[0], setNq = S7[1];
+  var S8 = useState(''), addErr = S8[0], setAddErr = S8[1];
+  var S9 = useState(false), showAdd = S9[0], setShowAdd = S9[1];
+  var scanRef = useRef(null);
+
+  function load() {
+    authFetch(API+'/inventory/items').then(function(r){return r.json();}).then(function(d){
+      if (d && d.items) setItems(d.items);
+    }).catch(function(){});
+  }
+  useEffect(function(){ load(); }, []);
+
+  // 自动聚焦扫描框；页面任意位置按键都重定向到扫描框（配合扫描枪 HID）
+  useEffect(function(){
+    if (scanRef.current) scanRef.current.focus();
+    function onKey(e){
+      var tel = e.target, tag = (tel && tel.tagName || '').toLowerCase();
+      if (tag !== 'input' && tag !== 'textarea' && tag !== 'select') {
+        if (scanRef.current && document.activeElement !== scanRef.current) scanRef.current.focus();
+      }
+    }
+    document.addEventListener('keydown', onKey);
+    return function(){ document.removeEventListener('keydown', onKey); };
+  }, []);
+
+  function doScan() {
+    var code = (scanVal || '').trim();
+    if (!code) return;
+    var m = mode;
+    setScanVal('');
+    var url = API + (m === 'ship' ? '/inventory/ship' : '/inventory/return');
+    authFetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({code:code})})
+      .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
+      .then(function(r){
+        var ok = r.status === 200;
+        var qty = ok ? r.data.item.quantity : null;
+        var msg = ok ? (m==='ship'?T.shipOk:T.rtnOk)
+                     : (r.status===404 ? T.notFound : (r.status===400 ? T.insufficient : (r.data.detail || T.failed)));
+        setFb({ok:ok, code:code, qty:qty, msg:msg, mode:m});
+        if (ok) load();
+        if (scanRef.current) scanRef.current.focus();
+      })
+      .catch(function(){ setFb({ok:false, code:code, msg:T.netErr, mode:m}); if (scanRef.current) scanRef.current.focus(); });
+  }
+
+  function addItem() {
+    var code = (nc || '').trim();
+    if (!code) { setAddErr(T.needCode); return; }
+    setAddErr('');
+    authFetch(API+'/inventory/items', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({product_name:(np||'').trim(), code:code, quantity: parseInt(nq,10)||0})})
+      .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
+      .then(function(r){
+        if (r.status !== 200) { setAddErr(r.status===400 ? T.codeExists : (r.data.detail || T.failed)); return; }
+        setNp(''); setNc(''); setNq(''); load();
+      })
+      .catch(function(){ setAddErr(T.netErr); });
+  }
+
+  function saveQty(it, val) {
+    var v = parseInt(val, 10); if (isNaN(v) || v < 0) v = 0;
+    if (v === it.quantity) return;
+    authFetch(API+'/inventory/items/'+it.id+'/quantity', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({quantity:v})})
+      .then(function(r){ if (r.ok) load(); });
+  }
+
+  function delItem(it) {
+    if (!window.confirm(T.delPrep + it.code + T.delSuf)) return;
+    authFetch(API+'/inventory/items/'+it.id+'/delete', {method:'POST'}).then(function(){ load(); });
+  }
+
+  var groups = {};
+  items.forEach(function(it){ var k = it.product_name || T.ungrouped; if(!groups[k]) groups[k]=[]; groups[k].push(it); });
+  var keys = Object.keys(groups);
+  var totalQty = items.reduce(function(s,it){ return s + (it.quantity||0); }, 0);
+  var zeroCount = items.filter(function(it){ return (it.quantity||0) === 0; }).length;
+
+  return h('div',null,
+    // 语言切换
+    h('div',{style:{display:'flex',justifyContent:'flex-end',alignItems:'center',gap:6,marginBottom:12}},
+      h('span',{style:{fontSize:13,color:'#999'}},'🌐'),
+      ['zh','ru'].map(function(L){
+        return h('button',{key:L,className:'btn '+(lang===L?'btn-primary':'btn-ghost'),style:{padding:'4px 14px',fontSize:13},
+          onClick:function(){ setL(L); }}, L==='zh' ? '中文' : 'Русский');
+      })
+    ),
+    // 扫描操作
+    h('div',{className:'card'},
+      h('div',{className:'card-title'},T.scanTitle),
+      h('div',{style:{display:'flex',gap:12,marginBottom:12}},
+        h('button',{className:'btn '+(mode==='ship'?'btn-primary':'btn-ghost'),style:{flex:1,padding:'12px'},onClick:function(){setMode('ship');if(scanRef.current)scanRef.current.focus();}},T.ship),
+        h('button',{className:'btn '+(mode==='return'?'btn-primary':'btn-ghost'),style:{flex:1,padding:'12px'},onClick:function(){setMode('return');if(scanRef.current)scanRef.current.focus();}},T.rtn)
+      ),
+      h('div',{className:'param-label',style:{marginBottom:6}}, mode==='ship' ? T.modeShip : T.modeReturn),
+      h('input',{ref:scanRef,className:'scan-input',value:scanVal,placeholder:T.scanPh,
+        onChange:function(e){setScanVal(e.target.value);},onKeyDown:function(e){ if(e.key==='Enter') doScan(); }}),
+      fb ? h('div',{className:'scan-fb '+(fb.ok?'ok':'bad')}, T.fb(fb.ok, fb.mode, fb.code, fb.msg, fb.qty)) : null
+    ),
+    // 添加产品 / 编码
+    h('div',{className:'card'},
+      h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
+        h('div',{className:'card-title',style:{marginBottom:0}},T.addTitle),
+        h('button',{className:'btn btn-ghost',onClick:function(){setShowAdd(!showAdd);}}, showAdd?T.collapse:T.expand)
+      ),
+      showAdd ? h('div',{style:{marginTop:16}},
+        h('div',{className:'inv-add-grid'},
+          h('div',null,h('div',{className:'param-label'},T.pname),h('input',{className:'param-input',style:{textAlign:'left'},value:np,placeholder:T.phName,onChange:function(e){setNp(e.target.value);}})),
+          h('div',null,h('div',{className:'param-label'},T.code),h('input',{className:'param-input',style:{textAlign:'left'},value:nc,placeholder:T.phCode,onChange:function(e){setNc(e.target.value);}})),
+          h('div',null,h('div',{className:'param-label'},T.initQty),h('input',{className:'param-input',type:'number',min:0,value:nq,onChange:function(e){setNq(e.target.value);}})),
+          h('div',null,h('button',{className:'btn btn-primary',style:{width:'100%',padding:'8px'},onClick:addItem},T.add))
+        ),
+        addErr ? h('div',{style:{color:'#ff4d4f',fontSize:13,marginTop:8}},addErr) : null
+      ) : null
+    ),
+    // 库存统计
+    h('div',{className:'card'},
+      h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8,marginBottom:12}},
+        h('div',{className:'card-title',style:{marginBottom:0}},T.invTitle),
+        h('div',{style:{fontSize:13,color:'#666'}},
+          T.summary(items.length, totalQty),
+          zeroCount>0 ? h('span',{style:{color:'#cf1322',fontWeight:700}},T.zeroWarn(zeroCount)) : null)
+      ),
+      items.length===0
+        ? h('div',{style:{color:'#999',fontSize:14,padding:'16px 0',textAlign:'center'}},T.noData)
+        : keys.map(function(k){
+            var list = groups[k];
+            return h('div',{key:k,style:{marginBottom:16}},
+              h('div',{className:'inv-group-head'}, T.groupHead(k, list.length)),
+              h('table',{className:'inv-table'},
+                h('tbody',null,
+                  list.map(function(it){
+                    var zero = (it.quantity||0) === 0;
+                    return h('tr',{key:it.id,className:zero?'inv-zero':''},
+                      h('td',{style:{fontFamily:'monospace',fontSize:14}},it.code),
+                      h('td',{style:{width:130}},
+                        h('input',{key:it.id+'-'+it.quantity,className:'inv-qty-input',type:'number',min:0,defaultValue:it.quantity,
+                          onBlur:function(e){saveQty(it,e.target.value);},
+                          onKeyDown:function(e){ if(e.key==='Enter'){ e.target.blur(); } }})
+                      ),
+                      h('td',{style:{width:90,textAlign:'center'}}, zero ? h('span',{className:'inv-zero-tag'},T.outOfStock) : null),
+                      h('td',{style:{width:44,textAlign:'right'}}, h('span',{className:'inv-del',title:T.delTitle,onClick:function(){delItem(it);}},'✕'))
+                    );
+                  })
+                )
+              )
+            );
+          }),
+      h('div',{style:{fontSize:12,color:'#999',marginTop:8}},T.hint)
+    )
+  );
+}
+
 function Page(props) {
   function doLogout() { localStorage.removeItem('wb_token'); localStorage.removeItem('wb_user'); props.onLogout(); }
 
-  var S1 = useState('manual'), tab = S1[0], setTab = S1[1];
+  var S1 = useState('inventory'), tab = S1[0], setTab = S1[1];
   var S2 = useState(12.5), er = S2[0], setEr = S2[1];
   var S3 = useState(7), tr = S3[0], setTr = S3[1];
   var S4 = useState(12), fr = S4[0], setFr = S4[1];
 
   var tabs = [
+    {key:'inventory', label:'📦 库存统计'},
     {key:'manual', label:'📎 手动处理'},
   ];
 
   return h('div',null,
     h('div',{className:'header'},
-      h('h1',null,'WB 财务分析'),
+      h('h1',null,'WB系统工具'),
       h('span',{className:'logout-btn',onClick:doLogout},'退出')
     ),
     h('div',{className:'tab-bar'},
@@ -305,7 +528,9 @@ function Page(props) {
       })
     ),
     h('div',{className:'container'},
-      h(ManualTab,{er:er,tr:tr,fr:fr,setEr:setEr,setTr:setTr,setFr:setFr})
+      tab==='inventory'
+        ? h(InventoryTab,null)
+        : h(ManualTab,{er:er,tr:tr,fr:fr,setEr:setEr,setTr:setTr,setFr:setFr})
     )
   );
 }

@@ -140,3 +140,14 @@ class UploadedReport(Base):
     uploaded_at = Column(DateTime, default=_now)
     file_path = Column(String(500), nullable=True)
     purchase_file_path = Column(String(500), nullable=True)
+
+
+class InventoryItem(Base):
+    __tablename__ = "inventory_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    product_name = Column(String(200), index=True)          # 产品名（用户自由输入）
+    code = Column(String(200), unique=True, index=True, nullable=False)  # 编码（扫描目标，用户自由输入）
+    quantity = Column(Integer, default=0)                   # 当前库存
+    created_at = Column(DateTime, default=_now)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
