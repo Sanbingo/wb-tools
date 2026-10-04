@@ -149,5 +149,20 @@ class InventoryItem(Base):
     product_name = Column(String(200), index=True)          # 产品名（用户自由输入）
     code = Column(String(200), unique=True, index=True, nullable=False)  # 编码（扫描目标，用户自由输入）
     quantity = Column(Integer, default=0)                   # 当前库存
+    remark = Column(String(500))                            # 备注
     created_at = Column(DateTime, default=_now)
     updated_at = Column(DateTime, default=_now, onupdate=_now)
+
+
+class InventoryLog(Base):
+    """库存操作日志（发货 / 退货），按天统计与查询。"""
+    __tablename__ = "inventory_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String(200), index=True)                  # 编码（扫描目标）
+    product_name = Column(String(200))                      # 产品名快照（便于统计，即使原项被删）
+    action = Column(String(20), index=True)                 # ship=发货 / return=退货
+    delta = Column(Integer)                                 # 变更量 -1 / +1
+    quantity_after = Column(Integer)                        # 操作后库存
+    log_date = Column(String(10), index=True)               # YYYY-MM-DD（用于按天统计）
+    created_at = Column(DateTime, default=_now, index=True)

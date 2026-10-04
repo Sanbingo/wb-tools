@@ -66,7 +66,6 @@
     .inv-table tr.inv-zero td { background: #fff1f0; }
     .inv-qty-input { width: 100%; padding: 5px 8px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 14px; text-align: center; }
     .inv-qty-input:focus { outline: none; border-color: #1677ff; box-shadow: 0 0 0 2px rgba(22,119,255,.1); }
-    .inv-zero-tag { color: #cf1322; font-weight: 700; font-size: 12px; }
     .inv-del { color: #bbb; cursor: pointer; font-size: 16px; }
     .inv-del:hover { color: #ff4d4f; }
     .inv-th { text-align: left; font-size: 12px; color: #999; font-weight: 600; padding: 6px 10px; border-bottom: 1px solid #e8e8e8; }
@@ -74,9 +73,34 @@
     .inv-prod-name { font-size: 14px; font-weight: 600; color: #333; word-break: break-all; }
     .inv-prod-total { font-size: 12px; color: #1677ff; margin-top: 3px; }
     .inv-prod-zero { font-size: 11px; color: #cf1322; margin-top: 2px; }
-    .inv-qty-wrap { display: flex; align-items: center; gap: 6px; }
-    .inv-qty-wrap .inv-qty-input { width: 84px; }
-    @media (max-width: 768px) { .upload-grid { grid-template-columns: 1fr; } .param-grid { grid-template-columns: 1fr 1fr; } .fetch-grid { grid-template-columns: 1fr 1fr; } .inv-add-grid { grid-template-columns: 1fr 1fr; } .container { padding: 8px; } .card { padding: 16px; } .tab-item { padding: 10px 12px; font-size: 13px; } }
+    .inv-qty-wrap { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .inv-qty-wrap .inv-qty-input { width: 84px; flex: 0 0 auto; }
+    .inv-zero-tag { color: #cf1322; font-weight: 700; font-size: 12px; white-space: nowrap; flex: 0 0 auto; }
+    .inv-batch-head { display: grid; grid-template-columns: 1fr 110px 1fr 24px; gap: 10px; font-size: 12px; color: #999; margin-bottom: 6px; }
+    .inv-batch-row { display: grid; grid-template-columns: 1fr 110px 1fr 24px; gap: 10px; align-items: center; margin-bottom: 8px; }
+    .inv-batch-row .param-input { width: 100%; }
+    /* 操作日志 */
+    .log-datebar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .log-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0 4px; }
+    .log-stat { border-radius: 8px; padding: 12px 14px; background: #fafafa; border: 1px solid #f0f0f0; text-align: center; }
+    .log-stat .v { font-size: 24px; font-weight: 700; line-height: 1.2; color: #333; }
+    .log-stat .l { font-size: 12px; color: #999; margin-top: 3px; }
+    .log-stat.ship .v { color: #cf1322; }
+    .log-stat.ret .v { color: #389e0d; }
+    .log-stat.net .v { color: #1677ff; }
+    .log-datechips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
+    .log-chip { padding: 3px 10px; border-radius: 12px; background: #f0f5ff; color: #1677ff; font-size: 12px; cursor: pointer; border: 1px solid #d6e4ff; }
+    .log-chip.active { background: #1677ff; color: #fff; border-color: #1677ff; }
+    .log-chip:hover { border-color: #1677ff; }
+    .log-type { font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 10px; white-space: nowrap; }
+    .log-type.ship { background: #fff1f0; color: #cf1322; }
+    .log-type.ret { background: #f6ffed; color: #389e0d; }
+    .log-delta { font-weight: 700; font-family: monospace; }
+    .log-delta.neg { color: #cf1322; }
+    .log-delta.pos { color: #389e0d; }
+    .log-sec-title { font-size: 14px; font-weight: 600; color: #333; margin-bottom: 10px; }
+    @media (max-width: 768px) { .log-stats { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 768px) { .upload-grid { grid-template-columns: 1fr; } .param-grid { grid-template-columns: 1fr 1fr; } .fetch-grid { grid-template-columns: 1fr 1fr; } .inv-add-grid { grid-template-columns: 1fr 1fr; } .inv-batch-head, .inv-batch-row { grid-template-columns: 1fr 70px 1fr 22px; gap: 6px; } .container { padding: 8px; } .card { padding: 16px; } .tab-item { padding: 10px 12px; font-size: 13px; } }
   </style>
 </head>
 <body>
@@ -324,6 +348,8 @@ var INV_T = {
     groupHead: function(name,n){ return '🏷️ '+name+'（'+n+' 个编码）'; },
     exportBtn: '📤 导出 Excel', exportErr: '导出失败，请重试',
     colProduct: '产品名', colCode: '编码', colQty: '库存', colAction: '操作', totalLabel: '总',
+    remark: '备注', remarkPh: '选填', addRowBtn: '＋ 添加一行', submitBtn: '提交', delRow: '删除此行',
+    dupWarn: '以下产品编码已存在，请检查：', addOk: function(n){ return '✅ 成功添加 '+n+' 个编码'; },
     fb: function(ok,mode,code,msg,qty){ return (ok?'✅ ':'❌ ')+(mode==='ship'?'发货':'退货')+'　'+code+'　—　'+msg+(qty!=null?'（现库存 '+qty+'）':''); }
   },
   ru: {
@@ -346,6 +372,8 @@ var INV_T = {
     groupHead: function(name,n){ return '🏷️ '+name+' (кодов: '+n+')'; },
     exportBtn: '📤 Экспорт в Excel', exportErr: 'Ошибка экспорта, попробуйте снова',
     colProduct: 'Название', colCode: 'Код', colQty: 'Остаток', colAction: 'Действие', totalLabel: 'Всего',
+    remark: 'Примечание', remarkPh: 'необязательно', addRowBtn: '＋ Добавить строку', submitBtn: 'Отправить', delRow: 'Удалить строку',
+    dupWarn: 'Следующие коды уже существуют, проверьте: ', addOk: function(n){ return '✅ Добавлено кодов: '+n; },
     fb: function(ok,mode,code,msg,qty){ return (ok?'✅ ':'❌ ')+(mode==='ship'?'Отгрузка':'Возврат')+'　'+code+'　—　'+msg+(qty!=null?' (остаток: '+qty+')':''); }
   }
 };
@@ -359,9 +387,9 @@ function InventoryTab(props) {
   var S3 = useState(''), scanVal = S3[0], setScanVal = S3[1];
   var S4 = useState(null), fb = S4[0], setFb = S4[1];
   var S5 = useState(''), np = S5[0], setNp = S5[1];
-  var S6 = useState(''), nc = S6[0], setNc = S6[1];
-  var S7 = useState(''), nq = S7[0], setNq = S7[1];
-  var S8 = useState(''), addErr = S8[0], setAddErr = S8[1];
+  var S6 = useState([{id:'r0', code:'', qty:'', remark:''}]), rows = S6[0], setRows = S6[1];
+  var S7 = useState(''), addErr = S7[0], setAddErr = S7[1];
+  var S8 = useState(''), addOk = S8[0], setAddOk = S8[1];
   var S9 = useState(false), showAdd = S9[0], setShowAdd = S9[1];
   var S10 = useState(''), expErr = S10[0], setExpErr = S10[1];
   var scanRef = useRef(null);
@@ -406,15 +434,28 @@ function InventoryTab(props) {
       .catch(function(){ setFb({ok:false, code:code, msg:T.netErr, mode:m}); if (scanRef.current) scanRef.current.focus(); });
   }
 
-  function addItem() {
-    var code = (nc || '').trim();
-    if (!code) { setAddErr(T.needCode); return; }
-    setAddErr('');
-    authFetch(API+'/inventory/items', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({product_name:(np||'').trim(), code:code, quantity: parseInt(nq,10)||0})})
+  function newRow() { return {id: 'r' + Date.now() + '_' + Math.random(), code: '', qty: '', remark: ''}; }
+  function setRow(id, field, val) {
+    setRows(function(rs){ return rs.map(function(r){ if (r.id !== id) return r; var o = {}; for (var k in r) o[k] = r[k]; o[field] = val; return o; }); });
+  }
+  function addRow() { setRows(function(rs){ return rs.concat([newRow()]); }); }
+  function delRow(id) { setRows(function(rs){ return rs.length > 1 ? rs.filter(function(r){ return r.id !== id; }) : rs; }); }
+
+  function submitBatch() {
+    setAddErr(''); setAddOk('');
+    var items = rows
+      .filter(function(r){ return (r.code || '').trim(); })
+      .map(function(r){ return { code: (r.code || '').trim(), quantity: parseInt(r.qty, 10) || 0, remark: (r.remark || '').trim() }; });
+    if (!items.length) { setAddErr(T.needCode); return; }
+    authFetch(API+'/inventory/items/batch', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({product_name:(np||'').trim(), items:items})})
       .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
       .then(function(r){
-        if (r.status !== 200) { setAddErr(r.status===400 ? T.codeExists : (r.data.detail || T.failed)); return; }
-        setNp(''); setNc(''); setNq(''); load();
+        if (r.status !== 200) { setAddErr(r.data.detail || T.failed); return; }
+        if (r.data.status === 'conflict') { setAddErr(T.dupWarn + (r.data.conflicts || []).join('、')); return; }
+        setAddOk(T.addOk(r.data.created));
+        setNp('');
+        setRows([newRow()]);
+        load();
       })
       .catch(function(){ setAddErr(T.netErr); });
   }
@@ -480,13 +521,29 @@ function InventoryTab(props) {
         h('button',{className:'btn btn-ghost',onClick:function(){setShowAdd(!showAdd);}}, showAdd?T.collapse:T.expand)
       ),
       showAdd ? h('div',{style:{marginTop:16}},
-        h('div',{className:'inv-add-grid'},
-          h('div',null,h('div',{className:'param-label'},T.pname),h('input',{className:'param-input',style:{textAlign:'left'},value:np,placeholder:T.phName,onChange:function(e){setNp(e.target.value);}})),
-          h('div',null,h('div',{className:'param-label'},T.code),h('input',{className:'param-input',style:{textAlign:'left'},value:nc,placeholder:T.phCode,onChange:function(e){setNc(e.target.value);}})),
-          h('div',null,h('div',{className:'param-label'},T.initQty),h('input',{className:'param-input',type:'number',min:0,value:nq,onChange:function(e){setNq(e.target.value);}})),
-          h('div',null,h('button',{className:'btn btn-primary',style:{width:'100%',padding:'8px'},onClick:addItem},T.add))
+        h('div',null,
+          h('div',{className:'param-label'},T.pname),
+          h('input',{className:'param-input',style:{textAlign:'left',maxWidth:340},value:np,placeholder:T.phName,onChange:function(e){setNp(e.target.value);}})
         ),
-        addErr ? h('div',{style:{color:'#ff4d4f',fontSize:13,marginTop:8}},addErr) : null
+        h('div',{style:{marginTop:14}},
+          h('div',{className:'inv-batch-head'},
+            h('span',null,T.code), h('span',null,T.initQty), h('span',null,T.remark), h('span',null,'')
+          ),
+          rows.map(function(r){
+            return h('div',{key:r.id,className:'inv-batch-row'},
+              h('input',{className:'param-input',style:{textAlign:'left'},value:r.code,placeholder:T.phCode,onChange:function(e){setRow(r.id,'code',e.target.value);}}),
+              h('input',{className:'param-input',type:'number',min:0,value:r.qty,onChange:function(e){setRow(r.id,'qty',e.target.value);}}),
+              h('input',{className:'param-input',style:{textAlign:'left'},value:r.remark,placeholder:T.remarkPh,onChange:function(e){setRow(r.id,'remark',e.target.value);}}),
+              h('span',{className:'inv-del',title:T.delRow,onClick:function(){delRow(r.id);}},'✕')
+            );
+          }),
+          h('button',{className:'btn btn-ghost',style:{marginTop:8,fontSize:13},onClick:addRow},T.addRowBtn)
+        ),
+        h('div',{style:{marginTop:12,display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}},
+          h('button',{className:'btn btn-primary',style:{padding:'8px 28px'},onClick:submitBatch},T.submitBtn),
+          addOk ? h('span',{style:{color:'#52c41a',fontSize:13,fontWeight:600}},addOk) : null
+        ),
+        addErr ? h('div',{style:{color:'#ff4d4f',fontSize:13,marginTop:8,fontWeight:600}},addErr) : null
       ) : null
     ),
     // 库存统计
@@ -508,7 +565,8 @@ function InventoryTab(props) {
               h('tr',null,
                 h('th',{className:'inv-th'},T.colProduct),
                 h('th',{className:'inv-th'},T.colCode),
-                h('th',{className:'inv-th',style:{width:150}},T.colQty),
+                h('th',{className:'inv-th',style:{width:170}},T.colQty),
+                h('th',{className:'inv-th'},T.remark),
                 h('th',{className:'inv-th',style:{width:56,textAlign:'right'}},T.colAction)
               )
             ),
@@ -535,6 +593,7 @@ function InventoryTab(props) {
                         onKeyDown:function(e){ if(e.key==='Enter'){ e.target.blur(); } }}),
                       zero ? h('span',{className:'inv-zero-tag'},T.outOfStock) : null)
                   ));
+                  cells.push(h('td',{key:'rmk',style:{color:'#888',fontSize:13}}, it.remark || ''));
                   cells.push(h('td',{key:'act',style:{textAlign:'right'}},
                     h('span',{className:'inv-del',title:T.delTitle,onClick:function(){delItem(it);}},'✕')));
                   return h('tr',{key:it.id,className:zero?'inv-zero':''}, cells);
@@ -543,6 +602,170 @@ function InventoryTab(props) {
             )
           ),
       h('div',{style:{fontSize:12,color:'#999',marginTop:8}},T.hint)
+    )
+  );
+}
+
+var LOG_T = {
+  zh: {
+    title: '📋 操作日志', sub: '记录每天的发货 / 退货操作，按天统计与查询',
+    dateLabel: '日期', todayBtn: '今天', prevBtn: '‹ 前一天', nextBtn: '后一天 ›', refreshBtn: '刷新',
+    datesHint: '有记录的日期：', noDates: '暂无历史记录',
+    ship: '发货', rtn: '退货',
+    sShip: '发货件数', sRet: '退货件数', sNet: '净变动', sOps: '操作笔数',
+    codeTitle: '📊 按编码汇总', detailTitle: '📝 操作明细（按时间顺序）',
+    colProduct: '产品名', colCode: '编码', colShip: '发货', colRet: '退货', colNet: '净', colAfter: '操作后库存',
+    colTime: '时间', colType: '类型', colDelta: '变化',
+    noData: '当天暂无发货 / 退货记录', loading: '加载中...', loadErr: '加载失败，请重试',
+    totalRow: '合计'
+  },
+  ru: {
+    title: '📋 Журнал операций', sub: 'Отгрузки и возвраты по дням со статистикой',
+    dateLabel: 'Дата', todayBtn: 'Сегодня', prevBtn: '‹ Пред. день', nextBtn: 'След. день ›', refreshBtn: 'Обновить',
+    datesHint: 'Даты с записями: ', noDates: 'Нет истории',
+    ship: 'Отгрузка', rtn: 'Возврат',
+    sShip: 'Отгружено', sRet: 'Возвратов', sNet: 'Итог', sOps: 'Операций',
+    codeTitle: '📊 Сводка по кодам', detailTitle: '📝 Детали операций (по времени)',
+    colProduct: 'Товар', colCode: 'Код', colShip: 'Отгрузка', colRet: 'Возврат', colNet: 'Итог', colAfter: 'Остаток после',
+    colTime: 'Время', colType: 'Тип', colDelta: 'Изм.',
+    noData: 'За этот день нет записей', loading: 'Загрузка...', loadErr: 'Ошибка загрузки, повторите',
+    totalRow: 'Итого'
+  }
+};
+
+function shiftDay(d, n) {
+  var p = (d || '').split('-');
+  if (p.length !== 3) return d;
+  var dt = new Date(parseInt(p[0],10), parseInt(p[1],10)-1, parseInt(p[2],10));
+  dt.setDate(dt.getDate() + n);
+  return dt.getFullYear() + '-' + ('0'+(dt.getMonth()+1)).slice(-2) + '-' + ('0'+dt.getDate()).slice(-2);
+}
+
+function LogTab(props) {
+  var LG = useState(localStorage.getItem('wb_inv_lang') || 'zh'), lang = LG[0], setLang = LG[1];
+  function setL(l){ setLang(l); try { localStorage.setItem('wb_inv_lang', l); } catch(e){} }
+  var T = LOG_T[lang] || LOG_T.zh;
+  var S1 = useState(''), date = S1[0], setDate = S1[1];
+  var S2 = useState(null), data = S2[0], setData = S2[1];
+  var S3 = useState(true), loading = S3[0], setLoading = S3[1];
+  var S4 = useState(''), err = S4[0], setErr = S4[1];
+
+  function load(d) {
+    setLoading(true); setErr('');
+    var url = API + '/inventory/logs' + (d ? ('?date=' + encodeURIComponent(d)) : '');
+    authFetch(url).then(function(r){ return r.json(); }).then(function(x){
+      setData(x);
+      if (x && x.date) setDate(x.date);
+      setLoading(false);
+    }).catch(function(){ setErr(T.loadErr); setLoading(false); });
+  }
+  useEffect(function(){ load(); }, []);
+
+  function go(d){ load(d); }
+
+  var sum = (data && data.summary) || {ship:0, return:0, net:0, total:0};
+  var items = (data && data.items) || [];
+  var byCode = (data && data.by_code) || [];
+  var dates = (data && data.dates) || [];
+  var today = (data && data.today) || '';
+  var netTxt = (sum.net > 0 ? '+' : '') + sum.net;
+  function netCls(v){ return v > 0 ? 'pos' : (v < 0 ? 'neg' : ''); }
+
+  return h('div',null,
+    // 语言切换
+    h('div',{style:{display:'flex',justifyContent:'flex-end',alignItems:'center',gap:6,marginBottom:12}},
+      h('span',{style:{fontSize:13,color:'#999'}},'🌐'),
+      ['zh','ru'].map(function(L){
+        return h('button',{key:L,className:'btn '+(lang===L?'btn-primary':'btn-ghost'),style:{padding:'4px 14px',fontSize:13},
+          onClick:function(){ setL(L); }}, L==='zh' ? '中文' : 'Русский');
+      })
+    ),
+    // 日期 + 统计
+    h('div',{className:'card'},
+      h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:8}},
+        h('div',null,
+          h('div',{className:'card-title',style:{marginBottom:2}},T.title),
+          h('div',{style:{fontSize:12,color:'#999'}},T.sub)
+        )
+      ),
+      h('div',{className:'log-datebar',style:{marginTop:16}},
+        h('span',{style:{fontSize:13,color:'#666'}},T.dateLabel),
+        h('input',{className:'date-input',type:'date',style:{width:160},value:date,onChange:function(e){go(e.target.value);}}),
+        h('button',{className:'btn btn-ghost',style:{padding:'6px 12px',fontSize:13},onClick:function(){go(shiftDay(date,-1));}},T.prevBtn),
+        h('button',{className:'btn btn-ghost',style:{padding:'6px 12px',fontSize:13},onClick:function(){go(today);}},T.todayBtn),
+        h('button',{className:'btn btn-ghost',style:{padding:'6px 12px',fontSize:13},onClick:function(){go(shiftDay(date,1));}},T.nextBtn),
+        h('button',{className:'btn btn-ghost',style:{padding:'6px 12px',fontSize:13},onClick:function(){go(date);}},T.refreshBtn)
+      ),
+      err ? h('div',{style:{color:'#ff4d4f',fontSize:13,marginTop:10}},err) : null,
+      h('div',{className:'log-stats'},
+        h('div',{className:'log-stat ship'}, h('div',{className:'v'},sum.ship), h('div',{className:'l'},T.sShip)),
+        h('div',{className:'log-stat ret'}, h('div',{className:'v'},sum.return), h('div',{className:'l'},T.sRet)),
+        h('div',{className:'log-stat net'}, h('div',{className:'v'},netTxt), h('div',{className:'l'},T.sNet)),
+        h('div',{className:'log-stat'}, h('div',{className:'v'},sum.total), h('div',{className:'l'},T.sOps))
+      ),
+      h('div',{className:'log-datechips'},
+        h('span',{style:{fontSize:12,color:'#999'}},T.datesHint),
+        dates.length===0 ? h('span',{style:{fontSize:12,color:'#bbb'}},T.noDates)
+          : dates.map(function(d){
+              return h('span',{key:d,className:'log-chip'+(d===date?' active':''),onClick:function(){go(d);}},d);
+            })
+      )
+    ),
+    // 按编码汇总
+    h('div',{className:'card'},
+      h('div',{className:'log-sec-title'},T.codeTitle),
+      loading ? h('div',{style:{color:'#999',fontSize:13}},T.loading)
+      : byCode.length===0 ? h('div',{style:{color:'#999',fontSize:14,padding:'8px 0',textAlign:'center'}},T.noData)
+      : h('table',{className:'inv-table'},
+          h('thead',null, h('tr',null,
+            h('th',{className:'inv-th'},T.colProduct),
+            h('th',{className:'inv-th'},T.colCode),
+            h('th',{className:'inv-th',style:{textAlign:'center'}},T.colShip),
+            h('th',{className:'inv-th',style:{textAlign:'center'}},T.colRet),
+            h('th',{className:'inv-th',style:{textAlign:'center'}},T.colNet),
+            h('th',{className:'inv-th',style:{textAlign:'center'}},T.colAfter)
+          )),
+          h('tbody',null,
+            byCode.map(function(r,i){
+              return h('tr',{key:i},
+                h('td',{style:{color:'#888',fontSize:13}}, r.product_name || ''),
+                h('td',{style:{fontFamily:'monospace',fontSize:14}}, r.code),
+                h('td',{style:{textAlign:'center',color:'#cf1322',fontWeight:600}}, r.ship||0),
+                h('td',{style:{textAlign:'center',color:'#389e0d',fontWeight:600}}, r.return||0),
+                h('td',{style:{textAlign:'center'}}, h('span',{className:'log-delta '+netCls(r.net)}, (r.net>0?'+':'')+r.net)),
+                h('td',{style:{textAlign:'center',color:'#666'}}, r.quantity_after)
+              );
+            })
+          )
+        )
+    ),
+    // 操作明细
+    h('div',{className:'card'},
+      h('div',{className:'log-sec-title'},T.detailTitle),
+      (!loading && items.length>0) ? h('table',{className:'inv-table'},
+        h('thead',null, h('tr',null,
+          h('th',{className:'inv-th',style:{width:90}},T.colTime),
+          h('th',{className:'inv-th'},T.colProduct),
+          h('th',{className:'inv-th'},T.colCode),
+          h('th',{className:'inv-th',style:{width:90}},T.colType),
+          h('th',{className:'inv-th',style:{width:70,textAlign:'center'}},T.colDelta),
+          h('th',{className:'inv-th',style:{width:100,textAlign:'center'}},T.colAfter)
+        )),
+        h('tbody',null,
+          items.map(function(it){
+            var isShip = it.action === 'ship';
+            return h('tr',{key:it.id},
+              h('td',{style:{color:'#888',fontFamily:'monospace'}}, it.time),
+              h('td',{style:{color:'#888',fontSize:13}}, it.product_name || ''),
+              h('td',{style:{fontFamily:'monospace',fontSize:14}}, it.code),
+              h('td',null, h('span',{className:'log-type '+(isShip?'ship':'ret')}, isShip?T.ship:T.rtn)),
+              h('td',{style:{textAlign:'center'}}, h('span',{className:'log-delta '+(isShip?'neg':'pos')}, (it.delta>0?'+':'')+it.delta)),
+              h('td',{style:{textAlign:'center',color:'#666'}}, it.quantity_after)
+            );
+          })
+        )
+      ) : (loading ? h('div',{style:{color:'#999',fontSize:13}},T.loading)
+                   : h('div',{style:{color:'#999',fontSize:14,padding:'8px 0',textAlign:'center'}},T.noData))
     )
   );
 }
@@ -557,6 +780,7 @@ function Page(props) {
 
   var tabs = [
     {key:'inventory', label:'📦 库存统计'},
+    {key:'logs', label:'📋 操作日志'},
     {key:'manual', label:'📎 手动处理'},
   ];
 
@@ -577,6 +801,8 @@ function Page(props) {
     h('div',{className:'container'},
       tab==='inventory'
         ? h(InventoryTab,null)
+        : tab==='logs'
+        ? h(LogTab,null)
         : h(ManualTab,{er:er,tr:tr,fr:fr,setEr:setEr,setTr:setTr,setFr:setFr})
     )
   );

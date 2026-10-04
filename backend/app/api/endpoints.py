@@ -12,7 +12,7 @@ import io, os, uuid, glob, tempfile, httpx
 from urllib.parse import quote
 
 from ..database import get_db
-from ..models import Sale, Order, Stock, DailySummary, SyncLog, UploadedReport, User, InventoryItem
+from ..models import Sale, Order, Stock, DailySummary, SyncLog, UploadedReport, User, InventoryItem, InventoryLog
 from ..services.wb_service import WBService
 from ..config import settings
 
@@ -1652,6 +1652,7 @@ class InventoryAddRequest(BaseModel):
     product_name: str = ""
     code: str
     quantity: int = 0
+    remark: str = ""
 
 
 class InventoryScanRequest(BaseModel):
@@ -1662,21 +1663,33 @@ class InventoryQuantityRequest(BaseModel):
     quantity: int
 
 
+class InventoryBatchItem(BaseModel):
+    code: str
+    quantity: int = 0
+    remark: str = ""
+
+
+class InventoryBatchRequest(BaseModel):
+    product_name: str = ""
+    items: list[InventoryBatchItem]
+
+
 def _inv_dict(i: InventoryItem) -> dict:
     return {
         "id": i.id,
         "product_name": i.product_name or "",
         "code": i.code,
         "quantity": i.quantity or 0,
+        "remark": i.remark or "",
         "updated_at": i.updated_at.isoformat() if i.updated_at else None,
     }
 
 
 @router.get("/inventory/items")
 async def list_inventory(username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """List all inventory items."""
+    """List all inventory items (insertion order — id asc, no re-sorting)."""
     result = await db.execute(
-        select(InventoryItem).order_by(InventoryItem.product_name, InventoryItem.code)
+        select(InventoryItem).order_by(InventoryItem.id)
     )
     items = result.scalars().all()
     return {"items": [_inv_dict(i) for i in items]}
@@ -1699,6 +1712,7 @@ async def add_inventory_item(
         product_name=(req.product_name or "").strip(),
         code=code,
         quantity=int(req.quantity or 0),
+        remark=(req.remark or "").strip(),
     )
     db.add(item)
     await db.commit()
@@ -1706,8 +1720,51 @@ async def add_inventory_item(
     return {"status": "success", "item": _inv_dict(item)}
 
 
-async def _inventory_scan(db: AsyncSession, code: str, delta: int) -> dict:
-    """Apply a +/- delta to the item matching the scanned code."""
+@router.post("/inventory/items/batch")
+async def add_inventory_batch(
+    req: InventoryBatchRequest,
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """批量添加：一个产品名 + 多行(编码/库存/备注)。
+
+    若任一编码已存在（或批内重复），整批不写入，返回冲突清单让用户检查。
+    """
+    product_name = (req.product_name or "").strip()
+    pairs = [(it, (it.code or "").strip()) for it in req.items]
+    valid = [(it, c) for it, c in pairs if c]
+    if not valid:
+        raise HTTPException(status_code=400, detail="请至少填写一个编码")
+
+    # 批内重复
+    seen, inner_dups = set(), []
+    for _, c in valid:
+        if c in seen:
+            inner_dups.append(c)
+        seen.add(c)
+
+    # 库内已存在
+    codes = [c for _, c in valid]
+    existing = await db.execute(select(InventoryItem.code).where(InventoryItem.code.in_(codes)))
+    existing_codes = [row[0] for row in existing.all()]
+
+    conflicts = list(dict.fromkeys(inner_dups + existing_codes))
+    if conflicts:
+        return {"status": "conflict", "conflicts": conflicts}
+
+    for it, c in valid:
+        db.add(InventoryItem(
+            product_name=product_name,
+            code=c,
+            quantity=int(it.quantity or 0),
+            remark=(it.remark or "").strip(),
+        ))
+    await db.commit()
+    return {"status": "success", "created": len(valid)}
+
+
+async def _inventory_scan(db: AsyncSession, code: str, delta: int, action: str) -> dict:
+    """Apply a +/- delta to the item matching the scanned code and write an operation log."""
     code = (code or "").strip()
     if not code:
         raise HTTPException(status_code=400, detail="编码不能为空")
@@ -1716,6 +1773,16 @@ async def _inventory_scan(db: AsyncSession, code: str, delta: int) -> dict:
     if not item:
         raise HTTPException(status_code=404, detail=f"未找到编码：{code}")
     item.quantity = (item.quantity or 0) + delta
+    now_local = datetime.now()
+    db.add(InventoryLog(
+        code=item.code,
+        product_name=item.product_name or "",
+        action=action,
+        delta=delta,
+        quantity_after=item.quantity,
+        log_date=now_local.strftime("%Y-%m-%d"),
+        created_at=now_local,
+    ))
     await db.commit()
     await db.refresh(item)
     return {"status": "success", "item": _inv_dict(item), "delta": delta}
@@ -1735,7 +1802,7 @@ async def inventory_ship(
         raise HTTPException(status_code=404, detail=f"未找到编码：{code}")
     if (item.quantity or 0) <= 0:
         raise HTTPException(status_code=400, detail=f"库存不足（{code} 当前 0）")
-    return await _inventory_scan(db, code, -1)
+    return await _inventory_scan(db, code, -1, "ship")
 
 
 @router.post("/inventory/return")
@@ -1745,7 +1812,7 @@ async def inventory_return(
     db: AsyncSession = Depends(get_db),
 ):
     """退货：扫描编码，库存 +1。"""
-    return await _inventory_scan(db, req.code, 1)
+    return await _inventory_scan(db, req.code, 1, "return")
 
 
 @router.post("/inventory/items/{item_id}/quantity")
@@ -1784,19 +1851,19 @@ async def delete_inventory_item(
 
 @router.get("/inventory/export")
 async def export_inventory(username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """导出库存统计为 Excel（产品名 / 编码 / 库存）。"""
+    """导出库存统计为 Excel（产品名 / 编码 / 库存 / 备注），顺序与页面一致（录入顺序）。"""
     result = await db.execute(
-        select(InventoryItem).order_by(InventoryItem.product_name, InventoryItem.code)
+        select(InventoryItem).order_by(InventoryItem.id)
     )
     items = result.scalars().all()
 
     wb = Workbook()
     ws = wb.active
     ws.title = "库存统计"
-    ws.append(["产品名", "编码", "库存"])
+    ws.append(["产品名", "编码", "库存", "备注"])
     style_header(ws)
     for it in items:
-        ws.append([it.product_name or "", it.code, int(it.quantity or 0)])
+        ws.append([it.product_name or "", it.code, int(it.quantity or 0), it.remark or ""])
     auto_width(ws)
 
     buf = io.BytesIO()
@@ -1808,3 +1875,76 @@ async def export_inventory(username: str = Depends(get_current_user), db: AsyncS
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": "attachment; filename*=UTF-8''" + quote(fname)},
     )
+
+
+# ── Inventory logs (操作日志：发货 / 退货，按天统计与查询) ──────────────
+
+def _inv_log_dict(l: InventoryLog) -> dict:
+    return {
+        "id": l.id,
+        "time": l.created_at.strftime("%H:%M:%S") if l.created_at else "",
+        "product_name": l.product_name or "",
+        "code": l.code or "",
+        "action": l.action or "",
+        "delta": l.delta or 0,
+        "quantity_after": l.quantity_after if l.quantity_after is not None else 0,
+    }
+
+
+@router.get("/inventory/logs")
+async def list_inventory_logs(
+    date: Optional[str] = Query(None),
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """按天查询发货 / 退货操作日志并统计。
+
+    - `date` 省略时默认「今天」（服务器本地日期）
+    - 返回当日每笔明细 + 按编码汇总 + 当日合计 + 有记录的日期列表
+    """
+    today = datetime.now().strftime("%Y-%m-%d")
+    day = (date or "").strip() or today
+
+    # 有记录的日期（供前端快速切换）
+    dres = await db.execute(
+        select(InventoryLog.log_date).distinct().order_by(desc(InventoryLog.log_date))
+    )
+    dates = [r[0] for r in dres.all() if r[0]]
+
+    result = await db.execute(
+        select(InventoryLog).where(InventoryLog.log_date == day).order_by(InventoryLog.id)
+    )
+    logs = result.scalars().all()
+
+    ship = sum(1 for l in logs if l.action == "ship")
+    ret = sum(1 for l in logs if l.action == "return")
+
+    # 按编码汇总（保持首次出现顺序）
+    agg, order = {}, []
+    for l in logs:
+        c = l.code or ""
+        if c not in agg:
+            agg[c] = {
+                "product_name": l.product_name or "",
+                "code": c,
+                "ship": 0, "return": 0, "net": 0,
+                "quantity_after": l.quantity_after,
+            }
+            order.append(c)
+        if l.action == "ship":
+            agg[c]["ship"] += 1
+        elif l.action == "return":
+            agg[c]["return"] += 1
+        agg[c]["net"] += (l.delta or 0)
+        if l.quantity_after is not None:
+            agg[c]["quantity_after"] = l.quantity_after
+    by_code = [agg[c] for c in order]
+
+    return {
+        "date": day,
+        "today": today,
+        "dates": dates,
+        "summary": {"ship": ship, "return": ret, "net": ret - ship, "total": len(logs)},
+        "items": [_inv_log_dict(l) for l in logs],
+        "by_code": by_code,
+    }
