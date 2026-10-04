@@ -73,6 +73,8 @@
     .inv-prod-name { font-size: 14px; font-weight: 600; color: #333; word-break: break-all; }
     .inv-prod-total { font-size: 12px; color: #1677ff; margin-top: 3px; }
     .inv-prod-zero { font-size: 11px; color: #cf1322; margin-top: 2px; }
+    .inv-prod-defect { font-size: 11px; color: #d46b08; margin-top: 2px; }
+    .inv-prod-sum { font-size: 11px; color: #666; margin-top: 2px; }
     .inv-qty-wrap { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     .inv-qty-wrap .inv-qty-input { width: 84px; flex: 0 0 auto; }
     .inv-zero-tag { color: #cf1322; font-weight: 700; font-size: 12px; white-space: nowrap; flex: 0 0 auto; }
@@ -330,51 +332,51 @@ function AutoFetchTab(props) {
 var INV_T = {
   zh: {
     scanTitle: '🔫 扫描操作',
-    ship: '🚀 发货（-1）', rtn: '↩️ 退货（+1）',
-    modeShip: '当前模式：发货 —— 扫描包装条形码，对应编码库存 -1',
-    modeReturn: '当前模式：退货 —— 扫描退货二维码，对应编码库存 +1',
+    ship: '🚀 发货（正品 -1）', rtn: '↩️ 退货（次品 +1）',
+    modeShip: '当前模式：发货 —— 扫描包装条形码，对应编码的正品库存 -1',
+    modeReturn: '当前模式：退货 —— 扫描退货二维码，对应编码的次品库存 +1（正品不变）',
     scanPh: '扫描枪扫描 / 手动输入编码后回车',
-    shipOk: '发货成功', rtnOk: '退货成功', notFound: '未找到编码', insufficient: '库存不足（当前 0）',
+    shipOk: '发货成功', rtnOk: '退货成功', notFound: '未找到编码', insufficient: '库存不足（正品与次品均为 0）',
     failed: '失败', netErr: '网络错误', needCode: '请填写编码', codeExists: '该编码已存在',
     addTitle: '➕ 添加产品 / 编码', expand: '展开', collapse: '收起',
     pname: '产品名', code: '编码', initQty: '初始库存', add: '添加',
     phName: '如 SHLD-15', phCode: '如 SHLD-15-L',
     invTitle: '📦 库存统计', noData: '暂无库存数据，请先「添加产品 / 编码」',
     ungrouped: '未分组', outOfStock: '⚠️ 缺货', delTitle: '删除',
-    hint: '💡 库存数量可直接编辑（手动改动），回车或点击空白处保存　|　红色行 = 库存为 0',
+    hint: '💡 正品 / 次品库存均可直接编辑，回车或点击空白处保存　|　红色行 = 正品为 0',
     delPrep: '确认删除编码「', delSuf: '」？此操作不可恢复。',
     summary: function(n,t){ return '共 '+n+' 个编码　总库存 '+t; },
     zeroWarn: function(z){ return '　⚠️ '+z+' 个缺货'; },
     groupHead: function(name,n){ return '🏷️ '+name+'（'+n+' 个编码）'; },
     exportBtn: '📤 导出 Excel', exportErr: '导出失败，请重试',
-    colProduct: '产品名', colCode: '编码', colQty: '库存', colAction: '操作', totalLabel: '总',
+    colProduct: '产品名', colCode: '编码', colQty: '正品库存', colDefect: '次品库存', colAction: '操作', goodLabel: '正品', defectLabel: '次品', sumLabel: '总数',
     remark: '备注', remarkPh: '选填', addRowBtn: '＋ 添加一行', submitBtn: '提交', delRow: '删除此行',
     dupWarn: '以下产品编码已存在，请检查：', addOk: function(n){ return '✅ 成功添加 '+n+' 个编码'; },
-    fb: function(ok,mode,code,msg,qty){ return (ok?'✅ ':'❌ ')+(mode==='ship'?'发货':'退货')+'　'+code+'　—　'+msg+(qty!=null?'（现库存 '+qty+'）':''); }
+    fb: function(ok,mode,code,msg,qty,fd){ var l=(mode==='ship'&&!fd)?'正品库存 ':'次品库存 '; var a=(mode==='ship')?(fd?'发货·次品':'发货'):'退货'; return (ok?'✅ ':'❌ ')+a+'　'+code+'　—　'+msg+(qty!=null?'（'+l+qty+'）':''); }
   },
   ru: {
     scanTitle: '🔫 Сканирование',
-    ship: '🚀 Отгрузка (-1)', rtn: '↩️ Возврат (+1)',
-    modeShip: 'Режим: Отгрузка — сканируйте штрихкод упаковки, остаток -1',
-    modeReturn: 'Режим: Возврат — сканируйте QR-код возврата, остаток +1',
+    ship: '🚀 Отгрузка (годный -1)', rtn: '↩️ Возврат (брак +1)',
+    modeShip: 'Режим: Отгрузка — сканируйте штрихкод упаковки, годный остаток -1',
+    modeReturn: 'Режим: Возврат — сканируйте QR-код возврата, брак +1 (годный остаток не меняется)',
     scanPh: 'Сканируйте или введите код и нажмите Enter',
-    shipOk: 'Отгрузка выполнена', rtnOk: 'Возврат выполнен', notFound: 'Код не найден', insufficient: 'Недостаточно остатка (текущий 0)',
+    shipOk: 'Отгрузка выполнена', rtnOk: 'Возврат выполнен', notFound: 'Код не найден', insufficient: 'Недостаточно остатка (годный и брак = 0)',
     failed: 'Ошибка', netErr: 'Ошибка сети', needCode: 'Введите код', codeExists: 'Такой код уже существует',
     addTitle: '➕ Добавить товар / код', expand: 'Развернуть', collapse: 'Свернуть',
     pname: 'Название товара', code: 'Код', initQty: 'Начальный остаток', add: 'Добавить',
     phName: 'напр. SHLD-15', phCode: 'напр. SHLD-15-L',
     invTitle: '📦 Складской учёт', noData: 'Нет данных. Сначала добавьте товар / код',
     ungrouped: 'Без группы', outOfStock: '⚠️ Нет в наличии', delTitle: 'Удалить',
-    hint: '💡 Остаток можно редактировать вручную; Enter или клик для сохранения　|　Красная строка = остаток 0',
+    hint: '💡 Годный и брак можно редактировать вручную; Enter или клик для сохранения　|　Красная строка = годный остаток 0',
     delPrep: 'Удалить код 「', delSuf: '」？Действие необратимо.',
     summary: function(n,t){ return 'Всего кодов: '+n+'　Общий остаток: '+t; },
     zeroWarn: function(z){ return '　⚠️ Нет в наличии: '+z; },
     groupHead: function(name,n){ return '🏷️ '+name+' (кодов: '+n+')'; },
     exportBtn: '📤 Экспорт в Excel', exportErr: 'Ошибка экспорта, попробуйте снова',
-    colProduct: 'Название', colCode: 'Код', colQty: 'Остаток', colAction: 'Действие', totalLabel: 'Всего',
+    colProduct: 'Название', colCode: 'Код', colQty: 'Годный остаток', colDefect: 'Брак', colAction: 'Действие', goodLabel: 'Годный', defectLabel: 'Брак', sumLabel: 'Всего',
     remark: 'Примечание', remarkPh: 'необязательно', addRowBtn: '＋ Добавить строку', submitBtn: 'Отправить', delRow: 'Удалить строку',
     dupWarn: 'Следующие коды уже существуют, проверьте: ', addOk: function(n){ return '✅ Добавлено кодов: '+n; },
-    fb: function(ok,mode,code,msg,qty){ return (ok?'✅ ':'❌ ')+(mode==='ship'?'Отгрузка':'Возврат')+'　'+code+'　—　'+msg+(qty!=null?' (остаток: '+qty+')':''); }
+    fb: function(ok,mode,code,msg,qty,fd){ var l=(mode==='ship'&&!fd)?'годный: ':'брак: '; var a=(mode==='ship')?(fd?'Отгрузка·брак':'Отгрузка'):'Возврат'; return (ok?'✅ ':'❌ ')+a+'　'+code+'　—　'+msg+(qty!=null?' ('+l+qty+')':''); }
   }
 };
 
@@ -424,10 +426,12 @@ function InventoryTab(props) {
       .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
       .then(function(r){
         var ok = r.status === 200;
-        var qty = ok ? r.data.item.quantity : null;
+        var qty = ok ? (m==='ship' ? r.data.item.quantity : r.data.item.defective_quantity) : null;
         var msg = ok ? (m==='ship'?T.shipOk:T.rtnOk)
                      : (r.status===404 ? T.notFound : (r.status===400 ? T.insufficient : (r.data.detail || T.failed)));
-        setFb({ok:ok, code:code, qty:qty, msg:msg, mode:m});
+        var fd = !!(ok && m==='ship' && r.data.from_defect);
+        if (fd) qty = r.data.item.defective_quantity;
+        setFb({ok:ok, code:code, qty:qty, msg:msg, mode:m, fromDefect:fd});
         if (ok) load();
         if (scanRef.current) scanRef.current.focus();
       })
@@ -464,6 +468,13 @@ function InventoryTab(props) {
     var v = parseInt(val, 10); if (isNaN(v) || v < 0) v = 0;
     if (v === it.quantity) return;
     authFetch(API+'/inventory/items/'+it.id+'/quantity', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({quantity:v})})
+      .then(function(r){ if (r.ok) load(); });
+  }
+
+  function saveDefect(it, val) {
+    var v = parseInt(val, 10); if (isNaN(v) || v < 0) v = 0;
+    if (v === (it.defective_quantity||0)) return;
+    authFetch(API+'/inventory/items/'+it.id+'/defect', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({quantity:v})})
       .then(function(r){ if (r.ok) load(); });
   }
 
@@ -512,7 +523,7 @@ function InventoryTab(props) {
       h('div',{className:'param-label',style:{marginBottom:6}}, mode==='ship' ? T.modeShip : T.modeReturn),
       h('input',{ref:scanRef,className:'scan-input',value:scanVal,placeholder:T.scanPh,
         onChange:function(e){setScanVal(e.target.value);},onKeyDown:function(e){ if(e.key==='Enter') doScan(); }}),
-      fb ? h('div',{className:'scan-fb '+(fb.ok?'ok':'bad')}, T.fb(fb.ok, fb.mode, fb.code, fb.msg, fb.qty)) : null
+      fb ? h('div',{className:'scan-fb '+(fb.ok?'ok':'bad')}, T.fb(fb.ok, fb.mode, fb.code, fb.msg, fb.qty, fb.fromDefect)) : null
     ),
     // 添加产品 / 编码
     h('div',{className:'card'},
@@ -566,6 +577,7 @@ function InventoryTab(props) {
                 h('th',{className:'inv-th'},T.colProduct),
                 h('th',{className:'inv-th'},T.colCode),
                 h('th',{className:'inv-th',style:{width:170}},T.colQty),
+                h('th',{className:'inv-th',style:{width:110,textAlign:'center'}},T.colDefect),
                 h('th',{className:'inv-th'},T.remark),
                 h('th',{className:'inv-th',style:{width:56,textAlign:'right'}},T.colAction)
               )
@@ -574,15 +586,16 @@ function InventoryTab(props) {
               [].concat.apply([], keys.map(function(k){
                 var list = groups[k];
                 var prodTotal = list.reduce(function(s,it){ return s + (it.quantity||0); }, 0);
-                var prodZero = list.filter(function(it){ return (it.quantity||0) === 0; }).length;
+                var prodDefect = list.reduce(function(s,it){ return s + (it.defective_quantity||0); }, 0);
                 return list.map(function(it, idx){
                   var zero = (it.quantity||0) === 0;
                   var cells = [];
                   if (idx === 0) {
                     cells.push(h('td',{key:'prod',rowSpan:list.length,className:'inv-prod-cell'},
                       h('div',{className:'inv-prod-name'}, k),
-                      h('div',{className:'inv-prod-total'}, T.totalLabel+' '+prodTotal),
-                      prodZero>0 ? h('div',{className:'inv-prod-zero'}, T.zeroWarn(prodZero)) : null
+                      h('div',{className:'inv-prod-total'}, T.goodLabel+' '+prodTotal),
+                      h('div',{className:'inv-prod-defect'}, T.defectLabel+' '+prodDefect),
+                      h('div',{className:'inv-prod-sum'}, T.sumLabel+' '+(prodTotal+prodDefect))
                     ));
                   }
                   cells.push(h('td',{key:'code',style:{fontFamily:'monospace',fontSize:14}}, it.code));
@@ -593,6 +606,12 @@ function InventoryTab(props) {
                         onKeyDown:function(e){ if(e.key==='Enter'){ e.target.blur(); } }}),
                       zero ? h('span',{className:'inv-zero-tag'},T.outOfStock) : null)
                   ));
+                  var dq = it.defective_quantity || 0;
+                  cells.push(h('td',{key:'defect'},
+                    h('div',{className:'inv-qty-wrap'},
+                      h('input',{key:it.id+'-def-'+it.defective_quantity,className:'inv-qty-input',type:'number',min:0,defaultValue:dq,
+                        onBlur:function(e){saveDefect(it,e.target.value);},
+                        onKeyDown:function(e){ if(e.key==='Enter'){ e.target.blur(); } }}))));
                   cells.push(h('td',{key:'rmk',style:{color:'#888',fontSize:13}}, it.remark || ''));
                   cells.push(h('td',{key:'act',style:{textAlign:'right'}},
                     h('span',{className:'inv-del',title:T.delTitle,onClick:function(){delItem(it);}},'✕')));
@@ -611,10 +630,10 @@ var LOG_T = {
     title: '📋 操作日志', sub: '记录每天的发货 / 退货操作，按天统计与查询',
     dateLabel: '日期', todayBtn: '今天', prevBtn: '‹ 前一天', nextBtn: '后一天 ›', refreshBtn: '刷新',
     datesHint: '有记录的日期：', noDates: '暂无历史记录',
-    ship: '发货', rtn: '退货',
+    ship: '发货', rtn: '退货', shipDefect: '发货·次品',
     sShip: '发货件数', sRet: '退货件数', sNet: '净变动', sOps: '操作笔数',
     codeTitle: '📊 按编码汇总', detailTitle: '📝 操作明细（按时间顺序）',
-    colProduct: '产品名', colCode: '编码', colShip: '发货', colRet: '退货', colNet: '净', colAfter: '操作后库存',
+    colProduct: '产品名', colCode: '编码', colShip: '发货', colRet: '退货', colQty: '正品库存', colDefect: '次品库存', colGood: '正品', colBad: '次品',
     colTime: '时间', colType: '类型', colDelta: '变化',
     noData: '当天暂无发货 / 退货记录', loading: '加载中...', loadErr: '加载失败，请重试',
     totalRow: '合计'
@@ -623,10 +642,10 @@ var LOG_T = {
     title: '📋 Журнал операций', sub: 'Отгрузки и возвраты по дням со статистикой',
     dateLabel: 'Дата', todayBtn: 'Сегодня', prevBtn: '‹ Пред. день', nextBtn: 'След. день ›', refreshBtn: 'Обновить',
     datesHint: 'Даты с записями: ', noDates: 'Нет истории',
-    ship: 'Отгрузка', rtn: 'Возврат',
+    ship: 'Отгрузка', rtn: 'Возврат', shipDefect: 'Отгрузка·брак',
     sShip: 'Отгружено', sRet: 'Возвратов', sNet: 'Итог', sOps: 'Операций',
     codeTitle: '📊 Сводка по кодам', detailTitle: '📝 Детали операций (по времени)',
-    colProduct: 'Товар', colCode: 'Код', colShip: 'Отгрузка', colRet: 'Возврат', colNet: 'Итог', colAfter: 'Остаток после',
+    colProduct: 'Товар', colCode: 'Код', colShip: 'Отгрузка', colRet: 'Возврат', colQty: 'Годный остаток', colDefect: 'Брак', colGood: 'Годный', colBad: 'Брак',
     colTime: 'Время', colType: 'Тип', colDelta: 'Изм.',
     noData: 'За этот день нет записей', loading: 'Загрузка...', loadErr: 'Ошибка загрузки, повторите',
     totalRow: 'Итого'
@@ -722,8 +741,8 @@ function LogTab(props) {
             h('th',{className:'inv-th'},T.colCode),
             h('th',{className:'inv-th',style:{textAlign:'center'}},T.colShip),
             h('th',{className:'inv-th',style:{textAlign:'center'}},T.colRet),
-            h('th',{className:'inv-th',style:{textAlign:'center'}},T.colNet),
-            h('th',{className:'inv-th',style:{textAlign:'center'}},T.colAfter)
+            h('th',{className:'inv-th',style:{textAlign:'center'}},T.colQty),
+            h('th',{className:'inv-th',style:{textAlign:'center'}},T.colDefect)
           )),
           h('tbody',null,
             byCode.map(function(r,i){
@@ -732,8 +751,8 @@ function LogTab(props) {
                 h('td',{style:{fontFamily:'monospace',fontSize:14}}, r.code),
                 h('td',{style:{textAlign:'center',color:'#cf1322',fontWeight:600}}, r.ship||0),
                 h('td',{style:{textAlign:'center',color:'#389e0d',fontWeight:600}}, r.return||0),
-                h('td',{style:{textAlign:'center'}}, h('span',{className:'log-delta '+netCls(r.net)}, (r.net>0?'+':'')+r.net)),
-                h('td',{style:{textAlign:'center',color:'#666'}}, r.quantity_after)
+                h('td',{style:{textAlign:'center',color:'#666'}}, r.quantity_after),
+                h('td',{style:{textAlign:'center',color:((r.defect_after||0)>0?'#d46b08':'#ccc'),fontWeight:((r.defect_after||0)>0?700:400)}}, r.defect_after||0)
               );
             })
           )
@@ -749,18 +768,21 @@ function LogTab(props) {
           h('th',{className:'inv-th'},T.colCode),
           h('th',{className:'inv-th',style:{width:90}},T.colType),
           h('th',{className:'inv-th',style:{width:70,textAlign:'center'}},T.colDelta),
-          h('th',{className:'inv-th',style:{width:100,textAlign:'center'}},T.colAfter)
+          h('th',{className:'inv-th',style:{width:80,textAlign:'center'}},T.colGood),
+          h('th',{className:'inv-th',style:{width:80,textAlign:'center'}},T.colBad)
         )),
         h('tbody',null,
           items.map(function(it){
             var isShip = it.action === 'ship';
+            var daf = it.defect_after||0;
             return h('tr',{key:it.id},
               h('td',{style:{color:'#888',fontFamily:'monospace'}}, it.time),
               h('td',{style:{color:'#888',fontSize:13}}, it.product_name || ''),
               h('td',{style:{fontFamily:'monospace',fontSize:14}}, it.code),
-              h('td',null, h('span',{className:'log-type '+(isShip?'ship':'ret')}, isShip?T.ship:T.rtn)),
+              h('td',null, h('span',{className:'log-type '+(isShip?'ship':'ret')}, (isShip && it.from_defect) ? T.shipDefect : (isShip?T.ship:T.rtn))),
               h('td',{style:{textAlign:'center'}}, h('span',{className:'log-delta '+(isShip?'neg':'pos')}, (it.delta>0?'+':'')+it.delta)),
-              h('td',{style:{textAlign:'center',color:'#666'}}, it.quantity_after)
+              h('td',{style:{textAlign:'center',color:'#666'}}, it.quantity_after),
+              h('td',{style:{textAlign:'center',color:(daf>0?'#d46b08':'#ccc'),fontWeight:(daf>0?700:400)}}, daf)
             );
           })
         )

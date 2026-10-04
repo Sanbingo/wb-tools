@@ -1680,6 +1680,7 @@ def _inv_dict(i: InventoryItem) -> dict:
         "product_name": i.product_name or "",
         "code": i.code,
         "quantity": i.quantity or 0,
+        "defective_quantity": i.defective_quantity or 0,
         "remark": i.remark or "",
         "updated_at": i.updated_at.isoformat() if i.updated_at else None,
     }
@@ -1763,46 +1764,45 @@ async def add_inventory_batch(
     return {"status": "success", "created": len(valid)}
 
 
-async def _inventory_scan(db: AsyncSession, code: str, delta: int, action: str) -> dict:
-    """Apply a +/- delta to the item matching the scanned code and write an operation log."""
-    code = (code or "").strip()
-    if not code:
-        raise HTTPException(status_code=400, detail="编码不能为空")
-    result = await db.execute(select(InventoryItem).where(InventoryItem.code == code))
-    item = result.scalar_one_or_none()
-    if not item:
-        raise HTTPException(status_code=404, detail=f"未找到编码：{code}")
-    item.quantity = (item.quantity or 0) + delta
-    now_local = datetime.now()
-    db.add(InventoryLog(
-        code=item.code,
-        product_name=item.product_name or "",
-        action=action,
-        delta=delta,
-        quantity_after=item.quantity,
-        log_date=now_local.strftime("%Y-%m-%d"),
-        created_at=now_local,
-    ))
-    await db.commit()
-    await db.refresh(item)
-    return {"status": "success", "item": _inv_dict(item), "delta": delta}
-
-
 @router.post("/inventory/ship")
 async def inventory_ship(
     req: InventoryScanRequest,
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """发货：扫描编码，库存 -1（不允许减到负数）。"""
+    """发货：扫描编码，正品库存 -1；若正品为 0 且次品有货，则从次品库存扣。"""
     code = (req.code or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="编码不能为空")
     result = await db.execute(select(InventoryItem).where(InventoryItem.code == code))
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail=f"未找到编码：{code}")
-    if (item.quantity or 0) <= 0:
-        raise HTTPException(status_code=400, detail=f"库存不足（{code} 当前 0）")
-    return await _inventory_scan(db, code, -1, "ship")
+    good = item.quantity or 0
+    defect = item.defective_quantity or 0
+    from_defect = False
+    if good > 0:
+        item.quantity = good - 1
+    elif defect > 0:
+        item.defective_quantity = defect - 1
+        from_defect = True
+    else:
+        raise HTTPException(status_code=400, detail=f"库存不足（{code} 正品与次品均为 0）")
+    now_local = datetime.now()
+    db.add(InventoryLog(
+        code=item.code,
+        product_name=item.product_name or "",
+        action="ship",
+        delta=-1,
+        quantity_after=item.quantity or 0,
+        defect_after=item.defective_quantity or 0,
+        from_defect=from_defect,
+        log_date=now_local.strftime("%Y-%m-%d"),
+        created_at=now_local,
+    ))
+    await db.commit()
+    await db.refresh(item)
+    return {"status": "success", "item": _inv_dict(item), "delta": -1, "from_defect": from_defect}
 
 
 @router.post("/inventory/return")
@@ -1811,8 +1811,29 @@ async def inventory_return(
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """退货：扫描编码，库存 +1。"""
-    return await _inventory_scan(db, req.code, 1, "return")
+    """退货：扫描编码，次品库存 +1（正品库存不变）。"""
+    code = (req.code or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="编码不能为空")
+    result = await db.execute(select(InventoryItem).where(InventoryItem.code == code))
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail=f"未找到编码：{code}")
+    item.defective_quantity = (item.defective_quantity or 0) + 1
+    now_local = datetime.now()
+    db.add(InventoryLog(
+        code=item.code,
+        product_name=item.product_name or "",
+        action="return",
+        delta=1,
+        quantity_after=item.quantity or 0,
+        defect_after=item.defective_quantity,
+        log_date=now_local.strftime("%Y-%m-%d"),
+        created_at=now_local,
+    ))
+    await db.commit()
+    await db.refresh(item)
+    return {"status": "success", "item": _inv_dict(item), "delta": 1}
 
 
 @router.post("/inventory/items/{item_id}/quantity")
@@ -1822,12 +1843,30 @@ async def set_inventory_quantity(
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """手动改动：直接设置某编码的库存数量。"""
+    """手动改动：直接设置某编码的正品库存。"""
     result = await db.execute(select(InventoryItem).where(InventoryItem.id == item_id))
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="库存项不存在")
     item.quantity = int(req.quantity)
+    await db.commit()
+    await db.refresh(item)
+    return {"status": "success", "item": _inv_dict(item)}
+
+
+@router.post("/inventory/items/{item_id}/defect")
+async def set_inventory_defect(
+    item_id: int,
+    req: InventoryQuantityRequest,
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """手动改动：直接设置某编码的次品库存。"""
+    result = await db.execute(select(InventoryItem).where(InventoryItem.id == item_id))
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="库存项不存在")
+    item.defective_quantity = int(req.quantity)
     await db.commit()
     await db.refresh(item)
     return {"status": "success", "item": _inv_dict(item)}
@@ -1851,7 +1890,7 @@ async def delete_inventory_item(
 
 @router.get("/inventory/export")
 async def export_inventory(username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """导出库存统计为 Excel（产品名 / 编码 / 库存 / 备注），顺序与页面一致（录入顺序）。"""
+    """导出库存统计为 Excel（产品名 / 编码 / 正品库存 / 次品库存 / 备注），顺序与页面一致（录入顺序）。"""
     result = await db.execute(
         select(InventoryItem).order_by(InventoryItem.id)
     )
@@ -1860,10 +1899,10 @@ async def export_inventory(username: str = Depends(get_current_user), db: AsyncS
     wb = Workbook()
     ws = wb.active
     ws.title = "库存统计"
-    ws.append(["产品名", "编码", "库存", "备注"])
+    ws.append(["产品名", "编码", "正品库存", "次品库存", "备注"])
     style_header(ws)
     for it in items:
-        ws.append([it.product_name or "", it.code, int(it.quantity or 0), it.remark or ""])
+        ws.append([it.product_name or "", it.code, int(it.quantity or 0), int(it.defective_quantity or 0), it.remark or ""])
     auto_width(ws)
 
     buf = io.BytesIO()
@@ -1888,6 +1927,8 @@ def _inv_log_dict(l: InventoryLog) -> dict:
         "action": l.action or "",
         "delta": l.delta or 0,
         "quantity_after": l.quantity_after if l.quantity_after is not None else 0,
+        "defect_after": l.defect_after if l.defect_after is not None else 0,
+        "from_defect": bool(l.from_defect),
     }
 
 
@@ -1927,17 +1968,19 @@ async def list_inventory_logs(
             agg[c] = {
                 "product_name": l.product_name or "",
                 "code": c,
-                "ship": 0, "return": 0, "net": 0,
+                "ship": 0, "return": 0,
                 "quantity_after": l.quantity_after,
+                "defect_after": l.defect_after,
             }
             order.append(c)
         if l.action == "ship":
             agg[c]["ship"] += 1
         elif l.action == "return":
             agg[c]["return"] += 1
-        agg[c]["net"] += (l.delta or 0)
         if l.quantity_after is not None:
             agg[c]["quantity_after"] = l.quantity_after
+        if l.defect_after is not None:
+            agg[c]["defect_after"] = l.defect_after
     by_code = [agg[c] for c in order]
 
     return {
