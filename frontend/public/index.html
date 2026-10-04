@@ -69,6 +69,13 @@
     .inv-zero-tag { color: #cf1322; font-weight: 700; font-size: 12px; }
     .inv-del { color: #bbb; cursor: pointer; font-size: 16px; }
     .inv-del:hover { color: #ff4d4f; }
+    .inv-th { text-align: left; font-size: 12px; color: #999; font-weight: 600; padding: 6px 10px; border-bottom: 1px solid #e8e8e8; }
+    .inv-prod-cell { vertical-align: top; background: #fafafa; border-right: 1px solid #f0f0f0; padding: 10px 12px; }
+    .inv-prod-name { font-size: 14px; font-weight: 600; color: #333; word-break: break-all; }
+    .inv-prod-total { font-size: 12px; color: #1677ff; margin-top: 3px; }
+    .inv-prod-zero { font-size: 11px; color: #cf1322; margin-top: 2px; }
+    .inv-qty-wrap { display: flex; align-items: center; gap: 6px; }
+    .inv-qty-wrap .inv-qty-input { width: 84px; }
     @media (max-width: 768px) { .upload-grid { grid-template-columns: 1fr; } .param-grid { grid-template-columns: 1fr 1fr; } .fetch-grid { grid-template-columns: 1fr 1fr; } .inv-add-grid { grid-template-columns: 1fr 1fr; } .container { padding: 8px; } .card { padding: 16px; } .tab-item { padding: 10px 12px; font-size: 13px; } }
   </style>
 </head>
@@ -315,6 +322,8 @@ var INV_T = {
     summary: function(n,t){ return '共 '+n+' 个编码　总库存 '+t; },
     zeroWarn: function(z){ return '　⚠️ '+z+' 个缺货'; },
     groupHead: function(name,n){ return '🏷️ '+name+'（'+n+' 个编码）'; },
+    exportBtn: '📤 导出 Excel', exportErr: '导出失败，请重试',
+    colProduct: '产品名', colCode: '编码', colQty: '库存', colAction: '操作', totalLabel: '总',
     fb: function(ok,mode,code,msg,qty){ return (ok?'✅ ':'❌ ')+(mode==='ship'?'发货':'退货')+'　'+code+'　—　'+msg+(qty!=null?'（现库存 '+qty+'）':''); }
   },
   ru: {
@@ -335,6 +344,8 @@ var INV_T = {
     summary: function(n,t){ return 'Всего кодов: '+n+'　Общий остаток: '+t; },
     zeroWarn: function(z){ return '　⚠️ Нет в наличии: '+z; },
     groupHead: function(name,n){ return '🏷️ '+name+' (кодов: '+n+')'; },
+    exportBtn: '📤 Экспорт в Excel', exportErr: 'Ошибка экспорта, попробуйте снова',
+    colProduct: 'Название', colCode: 'Код', colQty: 'Остаток', colAction: 'Действие', totalLabel: 'Всего',
     fb: function(ok,mode,code,msg,qty){ return (ok?'✅ ':'❌ ')+(mode==='ship'?'Отгрузка':'Возврат')+'　'+code+'　—　'+msg+(qty!=null?' (остаток: '+qty+')':''); }
   }
 };
@@ -352,6 +363,7 @@ function InventoryTab(props) {
   var S7 = useState(''), nq = S7[0], setNq = S7[1];
   var S8 = useState(''), addErr = S8[0], setAddErr = S8[1];
   var S9 = useState(false), showAdd = S9[0], setShowAdd = S9[1];
+  var S10 = useState(''), expErr = S10[0], setExpErr = S10[1];
   var scanRef = useRef(null);
 
   function load() {
@@ -419,6 +431,21 @@ function InventoryTab(props) {
     authFetch(API+'/inventory/items/'+it.id+'/delete', {method:'POST'}).then(function(){ load(); });
   }
 
+  function exportExcel() {
+    setExpErr('');
+    authFetch(API+'/inventory/export').then(function(r){
+      if (!r.ok) throw new Error('fail');
+      return r.blob();
+    }).then(function(blob){
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = '库存统计_' + new Date().toISOString().slice(0,10) + '.xlsx';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+    }).catch(function(){ setExpErr(T.exportErr); });
+  }
+
   var groups = {};
   items.forEach(function(it){ var k = it.product_name || T.ungrouped; if(!groups[k]) groups[k]=[]; groups[k].push(it); });
   var keys = Object.keys(groups);
@@ -466,35 +493,55 @@ function InventoryTab(props) {
     h('div',{className:'card'},
       h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8,marginBottom:12}},
         h('div',{className:'card-title',style:{marginBottom:0}},T.invTitle),
-        h('div',{style:{fontSize:13,color:'#666'}},
-          T.summary(items.length, totalQty),
-          zeroCount>0 ? h('span',{style:{color:'#cf1322',fontWeight:700}},T.zeroWarn(zeroCount)) : null)
+        h('div',{style:{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
+          h('span',{style:{fontSize:13,color:'#666'}},
+            T.summary(items.length, totalQty),
+            zeroCount>0 ? h('span',{style:{color:'#cf1322',fontWeight:700}},T.zeroWarn(zeroCount)) : null),
+          items.length>0 ? h('button',{className:'btn btn-success',style:{padding:'6px 14px',fontSize:13},onClick:exportExcel},T.exportBtn) : null
+        )
       ),
+      expErr ? h('div',{style:{color:'#ff4d4f',fontSize:13,marginBottom:8}},expErr) : null,
       items.length===0
         ? h('div',{style:{color:'#999',fontSize:14,padding:'16px 0',textAlign:'center'}},T.noData)
-        : keys.map(function(k){
-            var list = groups[k];
-            return h('div',{key:k,style:{marginBottom:16}},
-              h('div',{className:'inv-group-head'}, T.groupHead(k, list.length)),
-              h('table',{className:'inv-table'},
-                h('tbody',null,
-                  list.map(function(it){
-                    var zero = (it.quantity||0) === 0;
-                    return h('tr',{key:it.id,className:zero?'inv-zero':''},
-                      h('td',{style:{fontFamily:'monospace',fontSize:14}},it.code),
-                      h('td',{style:{width:130}},
-                        h('input',{key:it.id+'-'+it.quantity,className:'inv-qty-input',type:'number',min:0,defaultValue:it.quantity,
-                          onBlur:function(e){saveQty(it,e.target.value);},
-                          onKeyDown:function(e){ if(e.key==='Enter'){ e.target.blur(); } }})
-                      ),
-                      h('td',{style:{width:90,textAlign:'center'}}, zero ? h('span',{className:'inv-zero-tag'},T.outOfStock) : null),
-                      h('td',{style:{width:44,textAlign:'right'}}, h('span',{className:'inv-del',title:T.delTitle,onClick:function(){delItem(it);}},'✕'))
-                    );
-                  })
-                )
+        : h('table',{className:'inv-table'},
+            h('thead',null,
+              h('tr',null,
+                h('th',{className:'inv-th'},T.colProduct),
+                h('th',{className:'inv-th'},T.colCode),
+                h('th',{className:'inv-th',style:{width:150}},T.colQty),
+                h('th',{className:'inv-th',style:{width:56,textAlign:'right'}},T.colAction)
               )
-            );
-          }),
+            ),
+            h('tbody',null,
+              [].concat.apply([], keys.map(function(k){
+                var list = groups[k];
+                var prodTotal = list.reduce(function(s,it){ return s + (it.quantity||0); }, 0);
+                var prodZero = list.filter(function(it){ return (it.quantity||0) === 0; }).length;
+                return list.map(function(it, idx){
+                  var zero = (it.quantity||0) === 0;
+                  var cells = [];
+                  if (idx === 0) {
+                    cells.push(h('td',{key:'prod',rowSpan:list.length,className:'inv-prod-cell'},
+                      h('div',{className:'inv-prod-name'}, k),
+                      h('div',{className:'inv-prod-total'}, T.totalLabel+' '+prodTotal),
+                      prodZero>0 ? h('div',{className:'inv-prod-zero'}, T.zeroWarn(prodZero)) : null
+                    ));
+                  }
+                  cells.push(h('td',{key:'code',style:{fontFamily:'monospace',fontSize:14}}, it.code));
+                  cells.push(h('td',{key:'qty'},
+                    h('div',{className:'inv-qty-wrap'},
+                      h('input',{key:it.id+'-'+it.quantity,className:'inv-qty-input',type:'number',min:0,defaultValue:it.quantity,
+                        onBlur:function(e){saveQty(it,e.target.value);},
+                        onKeyDown:function(e){ if(e.key==='Enter'){ e.target.blur(); } }}),
+                      zero ? h('span',{className:'inv-zero-tag'},T.outOfStock) : null)
+                  ));
+                  cells.push(h('td',{key:'act',style:{textAlign:'right'}},
+                    h('span',{className:'inv-del',title:T.delTitle,onClick:function(){delItem(it);}},'✕')));
+                  return h('tr',{key:it.id,className:zero?'inv-zero':''}, cells);
+                });
+              }))
+            )
+          ),
       h('div',{style:{fontSize:12,color:'#999',marginTop:8}},T.hint)
     )
   );

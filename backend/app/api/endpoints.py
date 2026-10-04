@@ -4,11 +4,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, cast, Date
 from datetime import datetime, timedelta
 from typing import Optional
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from passlib.hash import bcrypt
 from jose import jwt, JWTError
 from pydantic import BaseModel
 import io, os, uuid, glob, tempfile, httpx
+from urllib.parse import quote
 
 from ..database import get_db
 from ..models import Sale, Order, Stock, DailySummary, SyncLog, UploadedReport, User, InventoryItem
@@ -1779,3 +1780,31 @@ async def delete_inventory_item(
     await db.delete(item)
     await db.commit()
     return {"status": "success"}
+
+
+@router.get("/inventory/export")
+async def export_inventory(username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """导出库存统计为 Excel（产品名 / 编码 / 库存）。"""
+    result = await db.execute(
+        select(InventoryItem).order_by(InventoryItem.product_name, InventoryItem.code)
+    )
+    items = result.scalars().all()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "库存统计"
+    ws.append(["产品名", "编码", "库存"])
+    style_header(ws)
+    for it in items:
+        ws.append([it.product_name or "", it.code, int(it.quantity or 0)])
+    auto_width(ws)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = "库存统计_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename*=UTF-8''" + quote(fname)},
+    )
