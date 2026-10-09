@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from passlib.hash import bcrypt
 from jose import jwt, JWTError
 from pydantic import BaseModel
-import io, os, uuid, glob, tempfile, httpx
+import io, os, uuid, glob, tempfile, httpx, unicodedata
 from urllib.parse import quote
 
 from ..database import get_db
@@ -1071,6 +1071,7 @@ async def get_product_analysis(
 
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 import re
 
 # Russian → Chinese header mapping
@@ -1163,6 +1164,8 @@ HEADER_MAP = {
     "коэффициент логистики": "物流系数",
     "коэффициент доставки": "物流系数",
 }
+# WB 报表部分俄文用 NFD(и+组合符 U+0306) 而非 NFC(预组合 й U+0439)，查表前统一规范化为 NFC
+HEADER_MAP = {unicodedata.normalize("NFC", k): v for k, v in HEADER_MAP.items()}
 
 # Payment type translation
 PAYMENT_TYPE_MAP = {
@@ -1173,9 +1176,12 @@ PAYMENT_TYPE_MAP = {
     "штраф": "罚款",
     "возврат": "退货 / 退款",
     "доставка": "配送费",
-    "обработка товара": "入库验收",
+    "обработка товара": "商品处理",
+    "услуга по обработке товара": "商品处理服务",
+    "услуга по подготовке короба к складской обработке": "用于准备集装箱进行仓储处理的服务",
     "коррекция продаж": "销售调整",
     "коррекция хранения": "仓储校正",
+    "коррекция стоимости доставки": "配送成本调整",
     "сумма баллов, удержанных в рамках акции \"баллы за отзывы\"": "\"评价有礼\" 活动扣除的积分金额",
     "стоимость участия в программе лояльности": "忠诚度计划参与费用（会员 / 订阅折扣成本）",
     "коррекция компенсации скидки по программе лояльности": "忠诚度计划折扣补偿费的调整",
@@ -1184,6 +1190,8 @@ PAYMENT_TYPE_MAP = {
     "возмещение издержек по перевозке/по складским операциям с товаром": "运输费用 / 仓储操作费用的补偿",
     "возмещение за выдачу и возврат товаров на пвз": "自提点商品发放与退货的费用补偿",
 }
+# 同上：付款依据查表前统一 NFC
+PAYMENT_TYPE_MAP = {unicodedata.normalize("NFC", k): v for k, v in PAYMENT_TYPE_MAP.items()}
 
 # 付款依据 → 分类归属：翻译后的中文值 → 分类类别。
 # 与 PAYMENT_TYPE_MAP 解耦：翻译显示文字可自由调整，分类表名(销售/物流/仓储/广告/罚款/退货/入库验收)
@@ -1197,7 +1205,9 @@ PAYMENT_CATEGORY_MAP = {
     "平台扣款": "广告",
     "罚款": "罚款",
     "退货 / 退款": "退货",
-    "入库验收": "入库验收",
+    "商品处理": "入库验收",
+    "商品处理服务": "入库验收",
+    "配送成本调整": "配送成本调整",
     "\"评价有礼\" 活动扣除的积分金额": "杂费",
     "忠诚度计划折扣补偿费的调整": "杂费",
     "忠诚度计划参与费用（会员 / 订阅折扣成本）": "杂费",
@@ -1207,6 +1217,7 @@ CATEGORY_COLUMNS = {
     "销售": ["条形码", "尺寸", "付款依据", "销售日期", "数量", "支付给卖家的已售商品金额", "仓库"],
     "销售调整": ["条形码", "尺寸", "付款依据", "销售日期", "数量", "支付给卖家的已售商品金额"],
     "物流": ["条形码", "尺寸", "付款依据", "销售日期", "交付数量", "退货数量", "向买家交付货物的服务", "销售方式与商品类型", "WB的物流、罚款和调整类型"],
+    "配送成本调整": ["条形码", "尺寸", "付款依据", "销售日期", "向买家交付货物的服务"],
     "仓储": ["付款依据", "销售日期", "仓储费"],
     "广告": ["付款依据", "销售日期", "WB的物流、罚款和调整类型", "扣款"],
     "罚款": ["付款依据", "销售日期", "罚款总额", "WB的物流、罚款和调整类型"],
@@ -1331,7 +1342,7 @@ async def _process_reports(
             raise HTTPException(status_code=400, detail="所有工作表为空或文件格式不一致")
 
         raw_headers = master_headers
-        cn_headers = [HEADER_MAP.get(h, h) for h in raw_headers]
+        cn_headers = [HEADER_MAP.get(unicodedata.normalize("NFC", h), h) for h in raw_headers]
         col_idx = {h: i for i, h in enumerate(cn_headers)}
 
         wb_out = Workbook()
@@ -1363,7 +1374,7 @@ async def _process_reports(
                 continue
             new_row = list(row)
             if payment_col >= 0 and payment_col < len(new_row):
-                orig = str(new_row[payment_col] or "").strip().lower()
+                orig = unicodedata.normalize("NFC", str(new_row[payment_col] or "").strip().lower())
                 translated = PAYMENT_TYPE_MAP.get(orig, new_row[payment_col])
                 new_row[payment_col] = translated
             processed_rows.append(new_row)
@@ -1371,8 +1382,13 @@ async def _process_reports(
         # 注意：不对行级 gi_id 去重，因为 WB 网页导出的 Excel 中"报告编号"(№)是文件内行号，非全局唯一ID。
         # 不同文件的行号会重叠，导致数据被误删。产品级聚合（按条码前缀）已能正确处理同品合并。
 
-        ws_proc = wb_out.active
-        ws_proc.title = "初处理"
+        # 原始表 = 用户上传的原始数据(俄文表头, 不做任何翻译/改动), 放在最前
+        ws_raw = wb_out.active
+        ws_raw.title = "原始表"
+        for raw_row in all_raw_rows:
+            ws_raw.append(list(raw_row))
+
+        ws_proc = wb_out.create_sheet("初处理")
         ws_proc.append(cn_headers)
         for row in processed_rows:
             ws_proc.append(row)
@@ -1380,7 +1396,7 @@ async def _process_reports(
         auto_width(ws_proc)
 
         # Category sheets
-        categorized = {"销售": [], "销售调整": [], "物流": [], "入库验收": [], "仓储": [], "广告": [], "罚款": [], "退货": [], "杂费": []}
+        categorized = {"销售": [], "销售调整": [], "物流": [], "配送成本调整": [], "入库验收": [], "仓储": [], "广告": [], "罚款": [], "退货": [], "杂费": []}
         for row in processed_rows:
             pv = str(get_val(row, payment_col) or "").strip()
             cat = PAYMENT_CATEGORY_MAP.get(pv)
@@ -1391,6 +1407,7 @@ async def _process_reports(
             "销售": ["条形码", "尺寸", "付款依据", "销售日期", "数量", "支付给卖家的已售商品金额", "仓库"],
             "销售调整": ["条形码", "尺寸", "付款依据", "销售日期", "数量", "支付给卖家的已售商品金额"],
             "物流": ["条形码", "尺寸", "付款依据", "销售日期", "交付数量", "退货数量", "向买家交付货物的服务", "销售方式与商品类型", "WB的物流、罚款和调整类型"],
+            "配送成本调整": ["条形码", "尺寸", "付款依据", "销售日期", "向买家交付货物的服务"],
             "入库验收": ["条形码", "尺寸", "付款依据", "销售日期", "验收操作"],
             "仓储": ["付款依据", "销售日期", "仓储费"],
             "广告": ["付款依据", "销售日期", "WB的物流、罚款和调整类型", "扣款"],
@@ -1423,7 +1440,7 @@ async def _process_reports(
                 continue
             if code not in products:
                 products[code] = {"code": code, "name": product_name, "barcode": barcode, "qty": 0, "for_pay": 0.0,
-                                  "logistics": 0.0, "delivery_qty": 0, "return_qty": 0, "return_amount": 0.0,
+                                  "logistics": 0.0, "delivery_adj": 0.0, "delivery_qty": 0, "return_qty": 0, "return_amount": 0.0,
                                   "acceptance_fee": 0.0, "sales_adj": 0.0}
             p = products[code]
             if product_name and not p["name"]:
@@ -1440,6 +1457,9 @@ async def _process_reports(
                 p["logistics"] += lc
                 rq = float(get_val(row, return_qty_col) or 0)
                 p["return_qty"] += rq
+            elif cat == "配送成本调整":
+                # 配送成本调整(Коррекция стоимости доставки) 取自「向买家交付货物的服务」
+                p["delivery_adj"] += float(get_val(row, logistics_col) or 0)
             elif cat == "退货":
                 ret_amt = float(get_val(row, for_pay_col) or 0)
                 p["return_amount"] += ret_amt
@@ -1476,7 +1496,7 @@ async def _process_reports(
             head_total = round(head_per_unit * qty, 2)
             label_total_rub = round(label_cost_rub * qty, 2)
 
-            total_sum = round(for_pay + p["sales_adj"] - p["return_amount"] - logistics - p["acceptance_fee"] - storage_fee - label_total_rub, 2)
+            total_sum = round(for_pay + p["sales_adj"] - p["return_amount"] - logistics - p["delivery_adj"] - p["acceptance_fee"] - storage_fee - label_total_rub, 2)
             after_tax = round(total_sum * tax_factor, 2)
             to_cny = round(after_tax / exchange_rate, 2)
 
@@ -1491,6 +1511,7 @@ async def _process_reports(
                                 round(p["sales_adj"], 2),
                                 round(p["return_amount"], 2), return_qty, conversion_rate,
                                 avg_log, round(logistics, 2),
+                                round(p["delivery_adj"], 2),
                                 round(p["acceptance_fee"], 2),
                                 storage_per_unit_val, storage_fee,
                                 label_cost_rub, label_total_rub,
@@ -1503,6 +1524,7 @@ async def _process_reports(
         ws_profit = wb_out.create_sheet("利润总表")
         profit_h = ["品名", "数量", "平均单套售价", "支付金额", "销售调整",
                     "退货金额", "拒收数量", "成交率%", "平均单套物流", "物流费",
+                    "配送成本调整",
                     "入库验收费用",
                     "单套仓储费", "仓储费",
                     "单套标签(₽)", "标签总计(₽)",
@@ -1513,6 +1535,10 @@ async def _process_reports(
         ws_profit.append(profit_h)
         red_fill = PatternFill("solid", fgColor="FF4444")
         red_font = Font(color="FFFFFF", bold=True)
+        # 公式里参数用整洁写法(整数不带.0)
+        er_s = int(exchange_rate) if float(exchange_rate).is_integer() else exchange_rate
+        tr_s = int(tax_rate) if float(tax_rate).is_integer() else tax_rate
+        fr_s = int(fee_rate) if float(fee_rate).is_integer() else fee_rate
         for row_data in profit_data:
             ws_profit.append(row_data)
             # 成交率% 现在在第8列(插入"销售调整"后)，<70% 标红
@@ -1521,19 +1547,26 @@ async def _process_reports(
             if isinstance(conversion_cell.value, (int, float)) and conversion_cell.value < 70:
                 conversion_cell.fill = red_fill
                 conversion_cell.font = red_font
-        # 求和行(标黄): D(4)支付金额 E(5)销售调整 J(10)物流费 K(11)入库验收费用 M(13)仓储费 O(15)标签总计 P(16)总和 U(21)货本总计 V(22)头程总计
-        sum_cols = [4, 5, 10, 11, 13, 15, 16, 21, 22]
+            # 派生列改 Excel 公式(用户改上面数据行时自动重算)：
+            # 总和(Q17) / 扣税和手续费后(R18) / 汇率转人民币(S19) / 货本总计(V22) / 头程总计(W23) / 总利润(X24) / 单个利润(Y25)
+            r = row_num
+            ws_profit.cell(row=r, column=17, value=f"=ROUND(D{r}+E{r}-F{r}-J{r}-K{r}-L{r}-N{r}-P{r},2)")
+            ws_profit.cell(row=r, column=18, value=f"=ROUND(Q{r}*(1-{tr_s}/100)*(1-{fr_s}/100),2)")
+            ws_profit.cell(row=r, column=19, value=f"=ROUND(R{r}/{er_s},2)")
+            ws_profit.cell(row=r, column=22, value=f"=ROUND(T{r}*B{r},2)")
+            ws_profit.cell(row=r, column=23, value=f"=ROUND(U{r}*B{r},2)")
+            ws_profit.cell(row=r, column=24, value=f"=ROUND(S{r}-V{r}-W{r},2)")
+            ws_profit.cell(row=r, column=25, value=f"=IF(B{r}=0,0,ROUND(X{r}/B{r},2))")
+        # 求和行(标黄): D(4)支付金额 E(5)销售调整 J(10)物流费 K(11)配送成本调整 L(12)入库验收费用 N(14)仓储费 P(16)标签总计 Q(17)总和 V(22)货本总计 W(23)头程总计
+        # 用 Excel 公式(=SUM(列2:列N))代替固定数值，用户改上面数据行时求和自动更新
+        sum_cols = [4, 5, 10, 11, 12, 14, 16, 17, 22, 23]
         sum_row = ws_profit.max_row + 1
         ws_profit.cell(row=sum_row, column=1, value="求和")
         yellow_fill = PatternFill("solid", fgColor="FFFF00")
         sum_font = Font(bold=True)
         for c in sum_cols:
-            total = 0.0
-            for r in range(2, sum_row):
-                v = ws_profit.cell(row=r, column=c).value
-                if isinstance(v, (int, float)):
-                    total += v
-            cell = ws_profit.cell(row=sum_row, column=c, value=round(total, 2))
+            letter = get_column_letter(c)
+            cell = ws_profit.cell(row=sum_row, column=c, value=f"=SUM({letter}2:{letter}{sum_row - 1})")
             cell.fill = yellow_fill
             cell.font = sum_font
         style_header(ws_profit)
