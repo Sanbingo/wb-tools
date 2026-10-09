@@ -334,9 +334,11 @@ var INV_T = {
     scanTitle: '🔫 扫描操作',
     ship: '🚀 发货（正品 -1）', rtn: '↩️ 退货（次品 +1）',
     modeShip: '当前模式：发货 —— 扫描包装条形码，对应编码的正品库存 -1',
+    modeShipDefect: '当前模式：发货（从次品库存扣）—— 扫描包装条形码，对应编码的次品库存 -1',
     modeReturn: '当前模式：退货 —— 扫描退货二维码，对应编码的次品库存 +1（正品不变）',
     scanPh: '扫描枪扫描 / 手动输入编码后回车',
-    shipOk: '发货成功', rtnOk: '退货成功', notFound: '未找到编码', insufficient: '库存不足（正品与次品均为 0）',
+    shipFromDefect: '从次品库存扣（默认关）',
+    shipOk: '发货成功', rtnOk: '退货成功', notFound: '未找到编码', insufficient: '库存不足（正品与次品均为 0）', defectInsuff: '次品库存不足（次品为 0）',
     failed: '失败', netErr: '网络错误', needCode: '请填写编码', codeExists: '该编码已存在',
     addTitle: '➕ 添加产品 / 编码', expand: '展开', collapse: '收起',
     pname: '产品名', code: '编码', initQty: '初始库存', add: '添加',
@@ -358,9 +360,11 @@ var INV_T = {
     scanTitle: '🔫 Сканирование',
     ship: '🚀 Отгрузка (годный -1)', rtn: '↩️ Возврат (брак +1)',
     modeShip: 'Режим: Отгрузка — сканируйте штрихкод упаковки, годный остаток -1',
+    modeShipDefect: 'Режим: Отгрузка (из брака) — сканируйте штрихкод упаковки, брак -1',
     modeReturn: 'Режим: Возврат — сканируйте QR-код возврата, брак +1 (годный остаток не меняется)',
     scanPh: 'Сканируйте или введите код и нажмите Enter',
-    shipOk: 'Отгрузка выполнена', rtnOk: 'Возврат выполнен', notFound: 'Код не найден', insufficient: 'Недостаточно остатка (годный и брак = 0)',
+    shipFromDefect: 'Списать из брака (по умолчанию выкл.)',
+    shipOk: 'Отгрузка выполнена', rtnOk: 'Возврат выполнен', notFound: 'Код не найден', insufficient: 'Недостаточно остатка (годный и брак = 0)', defectInsuff: 'Недостаточно брака (брак = 0)',
     failed: 'Ошибка', netErr: 'Ошибка сети', needCode: 'Введите код', codeExists: 'Такой код уже существует',
     addTitle: '➕ Добавить товар / код', expand: 'Развернуть', collapse: 'Свернуть',
     pname: 'Название товара', code: 'Код', initQty: 'Начальный остаток', add: 'Добавить',
@@ -394,6 +398,7 @@ function InventoryTab(props) {
   var S8 = useState(''), addOk = S8[0], setAddOk = S8[1];
   var S9 = useState(false), showAdd = S9[0], setShowAdd = S9[1];
   var S10 = useState(''), expErr = S10[0], setExpErr = S10[1];
+  var S11 = useState(false), shipFromDefect = S11[0], setShipFromDefect = S11[1];
   var scanRef = useRef(null);
 
   function load() {
@@ -420,15 +425,19 @@ function InventoryTab(props) {
     var code = (scanVal || '').trim();
     if (!code) return;
     var m = mode;
+    var fdReq = (m === 'ship' && shipFromDefect);   // 发货开关：是否强制从次品库存扣
     setScanVal('');
     var url = API + (m === 'ship' ? '/inventory/ship' : '/inventory/return');
-    authFetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({code:code})})
+    authFetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({code:code, from_defect:fdReq})})
       .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
       .then(function(r){
         var ok = r.status === 200;
         var qty = ok ? (m==='ship' ? r.data.item.quantity : r.data.item.defective_quantity) : null;
-        var msg = ok ? (m==='ship'?T.shipOk:T.rtnOk)
-                     : (r.status===404 ? T.notFound : (r.status===400 ? T.insufficient : (r.data.detail || T.failed)));
+        var msg;
+        if (ok) msg = (m==='ship' ? T.shipOk : T.rtnOk);
+        else if (r.status === 404) msg = T.notFound;
+        else if (r.status === 400) msg = fdReq ? T.defectInsuff : T.insufficient;
+        else msg = r.data.detail || T.failed;
         var fd = !!(ok && m==='ship' && r.data.from_defect);
         if (fd) qty = r.data.item.defective_quantity;
         setFb({ok:ok, code:code, qty:qty, msg:msg, mode:m, fromDefect:fd});
@@ -522,7 +531,11 @@ function InventoryTab(props) {
         h('button',{className:'btn '+(mode==='ship'?'btn-primary':'btn-ghost'),style:{flex:1,padding:'12px'},onClick:function(){setMode('ship');if(scanRef.current)scanRef.current.focus();}},T.ship),
         h('button',{className:'btn '+(mode==='return'?'btn-primary':'btn-ghost'),style:{flex:1,padding:'12px'},onClick:function(){setMode('return');if(scanRef.current)scanRef.current.focus();}},T.rtn)
       ),
-      h('div',{className:'param-label',style:{marginBottom:6}}, mode==='ship' ? T.modeShip : T.modeReturn),
+      mode==='ship' ? h('label',{className:'defect-switch',style:{display:'flex',alignItems:'center',gap:8,marginBottom:12,cursor:'pointer',padding:'8px 12px',borderRadius:6,border:'1px solid '+(shipFromDefect?'#fa8c16':'#d9d9d9'),background:shipFromDefect?'#fff7e6':'#fafafa'}},
+        h('input',{type:'checkbox',checked:shipFromDefect,onChange:function(e){setShipFromDefect(e.target.checked);if(scanRef.current)scanRef.current.focus();},style:{width:16,height:16,cursor:'pointer'}}),
+        h('span',{style:{fontSize:13,fontWeight:600,color:shipFromDefect?'#d46b08':'#595959'}}, T.shipFromDefect)
+      ) : null,
+      h('div',{className:'param-label',style:{marginBottom:6}}, mode==='ship' ? (shipFromDefect ? T.modeShipDefect : T.modeShip) : T.modeReturn),
       h('input',{ref:scanRef,className:'scan-input',value:scanVal,placeholder:T.scanPh,
         onChange:function(e){setScanVal(e.target.value);},onKeyDown:function(e){ if(e.key==='Enter') doScan(); }}),
       fb ? h('div',{className:'scan-fb '+(fb.ok?'ok':'bad')}, T.fb(fb.ok, fb.mode, fb.code, fb.msg, fb.qty, fb.fromDefect)) : null

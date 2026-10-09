@@ -1657,6 +1657,7 @@ class InventoryAddRequest(BaseModel):
 
 class InventoryScanRequest(BaseModel):
     code: str
+    from_defect: bool = False   # 发货开关：True=强制从次品库存扣（默认 False=正品优先）
 
 
 class InventoryQuantityRequest(BaseModel):
@@ -1770,7 +1771,11 @@ async def inventory_ship(
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """发货：扫描编码，正品库存 -1；若正品为 0 且次品有货，则从次品库存扣。"""
+    """发货：扫描编码，正品库存 -1。
+
+    默认（from_defect=False）：优先扣正品；正品为 0 且次品有货时自动扣次品。
+    开关打开（from_defect=True）：强制从次品库存扣；次品为 0 则报错。
+    """
     code = (req.code or "").strip()
     if not code:
         raise HTTPException(status_code=400, detail="编码不能为空")
@@ -1781,7 +1786,13 @@ async def inventory_ship(
     good = item.quantity or 0
     defect = item.defective_quantity or 0
     from_defect = False
-    if good > 0:
+    if req.from_defect:
+        # 开关打开：强制从次品库存扣
+        if defect <= 0:
+            raise HTTPException(status_code=400, detail=f"次品库存不足（{code} 次品为 0）")
+        item.defective_quantity = defect - 1
+        from_defect = True
+    elif good > 0:
         item.quantity = good - 1
     elif defect > 0:
         item.defective_quantity = defect - 1
