@@ -653,8 +653,8 @@ WB_REPORT_FIELD_MAP = {
 async def fetch_and_process(
     start_date: str = Form(...),
     end_date: str = Form(...),
-    exchange_rate: float = Form(12.5),
-    tax_rate: float = Form(7),
+    exchange_rate: float = Form(13),
+    tax_rate: float = Form(8),
     fee_rate: float = Form(12),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1139,6 +1139,7 @@ HEADER_MAP = {
     "хранение": "仓储费",
     "удержания": "扣款",
     "операции на приемке": "验收操作",
+    "услуга по обработке товара": "验收操作",  # 2026-10 新版报表把入库验收费用列从"операции на приемке"改名为此
     "фиксированный коэффициент склада по поставке": "固定仓库供应比例",
     "признак продажи юридическому лицу": "售卖给法人实体",
     "номер короба для обработки товара": "用于处理商品的箱号",
@@ -1629,8 +1630,8 @@ async def _process_reports(
 
 @router.post("/reports/process")
 async def process_reports(
-    exchange_rate: float = 12.5,
-    tax_rate: float = 7,
+    exchange_rate: float = 13,
+    tax_rate: float = 8,
     fee_rate: float = 12,
     db: AsyncSession = Depends(get_db),
 ):
