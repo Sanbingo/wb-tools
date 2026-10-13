@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Float, String, DateTime, Boolean, BigInteger, Text
+from sqlalchemy import Column, Integer, Float, String, DateTime, Boolean, BigInteger, Text, ForeignKey
 from datetime import datetime
 from ..database import Base
 
@@ -167,5 +167,29 @@ class InventoryLog(Base):
     quantity_after = Column(Integer)                        # 操作后正品库存
     defect_after = Column(Integer)                          # 操作后次品库存
     from_defect = Column(Boolean, default=False)            # 发货是否取自次品库存
+    box_id = Column(Integer)                                # 调拨来源箱子 id（仅调拨）
+    box_code = Column(String(200))                          # 调拨来源箱唛快照（仅调拨）
     log_date = Column(String(10), index=True)               # YYYY-MM-DD（用于按天统计）
     created_at = Column(DateTime, default=_now, index=True)
+
+
+class Box(Base):
+    """箱子库存：一个箱子（箱唛编码唯一）一条记录，含箱级备注；下面挂多个产品型号。"""
+    __tablename__ = "boxes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    box_code = Column(String(200), unique=True, index=True, nullable=False)  # 箱唛编码（唯一）
+    remark = Column(String(500))                                            # 箱级备注
+    created_at = Column(DateTime, default=_now)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
+
+
+class BoxItem(Base):
+    """箱子里的产品型号 + 初始库存。"""
+    __tablename__ = "box_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    box_id = Column(Integer, ForeignKey("boxes.id"), index=True, nullable=False)
+    product_model = Column(String(200))                     # 产品型号
+    quantity = Column(Integer, default=0)                   # 初始库存
+    created_at = Column(DateTime, default=_now)

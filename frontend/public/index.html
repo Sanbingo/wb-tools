@@ -51,7 +51,7 @@
     .login-err { color: #ff4d4f; font-size: 13px; margin-bottom: 12px; }
     .logout-btn { color: #fff; font-size: 13px; cursor: pointer; opacity: .7; padding: 4px 8px; }
     .logout-btn:hover { opacity: 1; }
-    /* 库存统计 */
+    /* 上架库存 */
     .scan-input { width: 100%; padding: 14px 16px; font-size: 20px; border: 2px solid #1677ff; border-radius: 8px; text-align: center; letter-spacing: 1px; font-family: monospace; }
     .scan-input:focus { outline: none; box-shadow: 0 0 0 3px rgba(22,119,255,.2); }
     .btn-ghost { background: #f5f5f5; color: #333; }
@@ -68,6 +68,22 @@
     .inv-qty-input:focus { outline: none; border-color: #1677ff; box-shadow: 0 0 0 2px rgba(22,119,255,.1); }
     .inv-del { color: #bbb; cursor: pointer; font-size: 16px; }
     .inv-del:hover { color: #ff4d4f; }
+    .inv-add { display: inline-block; margin-left: 8px; width: 20px; height: 20px; line-height: 18px; text-align: center; border-radius: 50%; background: #f6ffed; border: 1px solid #b7eb8f; color: #389e0d; font-weight: 700; cursor: pointer; font-size: 15px; vertical-align: middle; user-select: none; }
+    .inv-add:hover { background: #52c41a; border-color: #52c41a; color: #fff; }
+    .inv-edit { color: #999; cursor: pointer; font-size: 15px; margin-right: 10px; }
+    .inv-edit:hover { color: #1677ff; }
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .modal-box { background: #fff; border-radius: 10px; padding: 24px; width: 400px; max-width: 92vw; box-shadow: 0 8px 32px rgba(0,0,0,.2); }
+    .modal-title { font-size: 16px; font-weight: 600; margin-bottom: 14px; color: #333; }
+    .modal-hint { font-size: 13px; color: #555; background: #fafafa; border: 1px solid #f0f0f0; border-radius: 6px; padding: 8px 12px; margin-bottom: 14px; line-height: 1.6; }
+    .modal-row { margin-bottom: 14px; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+    .box-radio { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid #e8e8e8; border-radius: 6px; margin-bottom: 6px; cursor: pointer; transition: all .2s; }
+    .box-radio:hover { border-color: #91caff; }
+    .box-radio.active { border-color: #1677ff; background: #f0f7ff; }
+    .box-radio input { width: 16px; height: 16px; cursor: pointer; flex: 0 0 auto; }
+    .box-radio-code { font-family: monospace; font-size: 14px; font-weight: 600; color: #333; }
+    .box-radio-qty { margin-left: auto; font-size: 12px; color: #888; white-space: nowrap; }
     .inv-th { text-align: left; font-size: 12px; color: #999; font-weight: 600; padding: 6px 10px; border-bottom: 1px solid #e8e8e8; }
     .inv-prod-cell { vertical-align: top; background: #fafafa; border-right: 1px solid #f0f0f0; padding: 10px 12px; }
     .inv-prod-name { font-size: 14px; font-weight: 600; color: #333; word-break: break-all; }
@@ -81,14 +97,18 @@
     .inv-batch-head { display: grid; grid-template-columns: 1fr 110px 1fr 24px; gap: 10px; font-size: 12px; color: #999; margin-bottom: 6px; }
     .inv-batch-row { display: grid; grid-template-columns: 1fr 110px 1fr 24px; gap: 10px; align-items: center; margin-bottom: 8px; }
     .inv-batch-row .param-input { width: 100%; }
+    .box-batch-head { display: grid; grid-template-columns: 1fr 130px 24px; gap: 10px; font-size: 12px; color: #999; margin-bottom: 6px; }
+    .box-batch-row { display: grid; grid-template-columns: 1fr 130px 24px; gap: 10px; align-items: center; margin-bottom: 8px; }
+    .box-batch-row .param-input { width: 100%; }
     /* 操作日志 */
     .log-datebar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .log-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0 4px; }
+    .log-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin: 16px 0 4px; }
     .log-stat { border-radius: 8px; padding: 12px 14px; background: #fafafa; border: 1px solid #f0f0f0; text-align: center; }
     .log-stat .v { font-size: 24px; font-weight: 700; line-height: 1.2; color: #333; }
     .log-stat .l { font-size: 12px; color: #999; margin-top: 3px; }
     .log-stat.ship .v { color: #cf1322; }
     .log-stat.ret .v { color: #389e0d; }
+    .log-stat.tr .v { color: #d46b08; }
     .log-stat.net .v { color: #1677ff; }
     .log-datechips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
     .log-chip { padding: 3px 10px; border-radius: 12px; background: #f0f5ff; color: #1677ff; font-size: 12px; cursor: pointer; border: 1px solid #d6e4ff; }
@@ -97,6 +117,7 @@
     .log-type { font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 10px; white-space: nowrap; }
     .log-type.ship { background: #fff1f0; color: #cf1322; }
     .log-type.ret { background: #f6ffed; color: #389e0d; }
+    .log-type.tr { background: #fff7e6; color: #d46b08; }
     .log-delta { font-weight: 700; font-family: monospace; }
     .log-delta.neg { color: #cf1322; }
     .log-delta.pos { color: #389e0d; }
@@ -343,7 +364,7 @@ var INV_T = {
     addTitle: '➕ 添加产品 / 编码', expand: '展开', collapse: '收起',
     pname: '产品名', code: '编码', initQty: '初始库存', add: '添加',
     phName: '如 SHLD-15', phCode: '如 SHLD-15-L',
-    invTitle: '📦 库存统计', noData: '暂无库存数据，请先「添加产品 / 编码」',
+    invTitle: '📦 上架库存', noData: '暂无库存数据，请先「添加产品 / 编码」',
     ungrouped: '未分组', outOfStock: '⚠️ 缺货', delTitle: '删除',
     hint: '💡 正品 / 次品库存均可直接编辑，回车或点击空白处保存　|　红色行 = 正品为 0',
     delPrep: '确认删除编码「', delSuf: '」？此操作不可恢复。',
@@ -354,6 +375,21 @@ var INV_T = {
     colProduct: '产品名', colCode: '编码', colQty: '正品库存', colDefect: '次品库存', colAction: '操作', goodLabel: '正品', defectLabel: '次品', sumLabel: '总数',
     remark: '备注', remarkPh: '选填', addRowBtn: '＋ 添加一行', submitBtn: '提交', delRow: '删除此行',
     dupWarn: '以下产品编码已存在，请检查：', addOk: function(n){ return '✅ 成功添加 '+n+' 个编码'; },
+    replenishBtn: '从箱子库存添加正品库存',
+    replenishTitle: '➕ 从箱子库存添加正品库存',
+    replenishCodeLabel: '编码',
+    replenishAvail: function(n){ return '箱子库存可调拨：'+n; },
+    replenishNoBox: '箱子库存中暂无该型号',
+    replenishSelBox: '选择箱唛（从哪个箱子扣减）',
+    boxAvail: function(n){ return '可用 '+n; },
+    replenishNeedBox: '请选择一个箱唛',
+    replenishQtyLabel: '调拨数量',
+    replenishPh: '请输入要添加的数量',
+    replenishOk: function(code,qty,box){ return '✅ 添加库存成功　'+code+'　正品 +'+qty+(box?('（'+box+' -'+qty+'）'):''); },
+    replenishInsuff: '箱子库存不足或型号不匹配',
+    replenishNotFound: '库存项不存在',
+    replenishNeedQty: '请输入大于 0 的数量',
+    cancel: '取消', confirmBtn: '确定添加',
     fb: function(ok,mode,code,msg,qty,fd){ var l=(mode==='ship'&&!fd)?'正品库存 ':'次品库存 '; var a=(mode==='ship')?(fd?'发货·次品':'发货'):'退货'; return (ok?'✅ ':'❌ ')+a+'　'+code+'　—　'+msg+(qty!=null?'（'+l+qty+'）':''); }
   },
   ru: {
@@ -380,6 +416,21 @@ var INV_T = {
     colProduct: 'Название', colCode: 'Код', colQty: 'Годный остаток', colDefect: 'Брак', colAction: 'Действие', goodLabel: 'Годный', defectLabel: 'Брак', sumLabel: 'Всего',
     remark: 'Примечание', remarkPh: 'необязательно', addRowBtn: '＋ Добавить строку', submitBtn: 'Отправить', delRow: 'Удалить строку',
     dupWarn: 'Следующие коды уже существуют, проверьте: ', addOk: function(n){ return '✅ Добавлено кодов: '+n; },
+    replenishBtn: 'Пополнить годный остаток из короба',
+    replenishTitle: '➕ Пополнить годный остаток из короба',
+    replenishCodeLabel: 'Код',
+    replenishAvail: function(n){ return 'Доступно в коробах: '+n; },
+    replenishNoBox: 'В коробах нет такой модели',
+    replenishSelBox: 'Выберите короб (откуда списать)',
+    boxAvail: function(n){ return 'доступно '+n; },
+    replenishNeedBox: 'Выберите короб',
+    replenishQtyLabel: 'Количество',
+    replenishPh: 'Введите количество',
+    replenishOk: function(code,qty,box){ return '✅ Остаток добавлен　'+code+'　годный +'+qty+(box?(' ('+box+' -'+qty+')'):''); },
+    replenishInsuff: 'Недостаточно в коробах или модель не совпадает',
+    replenishNotFound: 'Позиция не найдена',
+    replenishNeedQty: 'Введите количество больше 0',
+    cancel: 'Отмена', confirmBtn: 'Добавить',
     fb: function(ok,mode,code,msg,qty,fd){ var l=(mode==='ship'&&!fd)?'годный: ':'брак: '; var a=(mode==='ship')?(fd?'Отгрузка·брак':'Отгрузка'):'Возврат'; return (ok?'✅ ':'❌ ')+a+'　'+code+'　—　'+msg+(qty!=null?' ('+l+qty+')':''); }
   }
 };
@@ -399,6 +450,10 @@ function InventoryTab(props) {
   var S9 = useState(false), showAdd = S9[0], setShowAdd = S9[1];
   var S10 = useState(''), expErr = S10[0], setExpErr = S10[1];
   var S11 = useState(false), shipFromDefect = S11[0], setShipFromDefect = S11[1];
+  var S12 = useState(null), rep = S12[0], setRep = S12[1];       // 调拨弹窗 {item, avail, qty}
+  var S13 = useState(''), repErr = S13[0], setRepErr = S13[1];
+  var S14 = useState(false), repBusy = S14[0], setRepBusy = S14[1];
+  var S15 = useState(''), repMsg = S15[0], setRepMsg = S15[1];
   var scanRef = useRef(null);
 
   function load() {
@@ -492,6 +547,51 @@ function InventoryTab(props) {
     authFetch(API+'/inventory/items/'+it.id+'/delete', {method:'POST'}).then(function(){ load(); });
   }
 
+  // ── 从「箱子库存」调拨正品库存 ──
+  function openReplenish(it) {
+    setRepErr(''); setRepMsg('');
+    setRep({item: it, boxes: null, avail: null, qty: '', selBoxId: null});
+    // 预取箱子库存，列出含该型号的箱子（供用户选择）
+    authFetch(API+'/boxes').then(function(r){return r.json();}).then(function(d){
+      var code = (it.code || '').trim(), list = [], total = 0;
+      ((d && d.boxes) || []).forEach(function(b){
+        var q = 0;
+        ((b.items) || []).forEach(function(bi){ if (((bi.product_model||'').trim()) === code) q += (bi.quantity || 0); });
+        if (q > 0) { list.push({box_id: b.id, box_code: b.box_code, quantity: q}); total += q; }
+      });
+      var sel = (list.length === 1) ? list[0].box_id : null;   // 只有一个箱子时默认选中
+      setRep(function(prev){
+        if (!prev || prev.item.id !== it.id) return prev;
+        return {item: it, boxes: list, avail: total, qty: prev.qty, selBoxId: (prev.selBoxId != null ? prev.selBoxId : sel)};
+      });
+    }).catch(function(){});
+  }
+
+  function confirmReplenish() {
+    if (!rep) return;
+    var v = parseInt(rep.qty, 10);
+    if (isNaN(v) || v <= 0) { setRepErr(T.replenishNeedQty); return; }
+    var sel = rep.selBoxId;
+    if (sel == null && rep.boxes && rep.boxes.length === 1) sel = rep.boxes[0].box_id;
+    if (sel == null && rep.boxes && rep.boxes.length > 1) { setRepErr(T.replenishNeedBox); return; }
+    setRepBusy(true); setRepErr('');
+    var body = {quantity: v};
+    if (sel != null) body.box_id = sel;
+    authFetch(API+'/inventory/items/'+rep.item.id+'/replenish', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)})
+      .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
+      .then(function(r){
+        setRepBusy(false);
+        if (r.status === 200) {
+          setRepMsg(T.replenishOk(rep.item.code, r.data.added, r.data.box_code));
+          setRep(null);
+          load();
+        } else if (r.status === 404) { setRepErr(T.replenishNotFound); }
+        else if (r.status === 400) { setRepErr(T.replenishInsuff); }
+        else { setRepErr((r.data && r.data.detail) || T.failed); }
+      })
+      .catch(function(){ setRepBusy(false); setRepErr(T.netErr); });
+  }
+
   function exportExcel() {
     setExpErr('');
     authFetch(API+'/inventory/export').then(function(r){
@@ -501,7 +601,7 @@ function InventoryTab(props) {
       var url = URL.createObjectURL(blob);
       var a = document.createElement('a');
       a.href = url;
-      a.download = '库存统计_' + new Date().toISOString().slice(0,10) + '.xlsx';
+      a.download = '上架库存_' + new Date().toISOString().slice(0,10) + '.xlsx';
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
     }).catch(function(){ setExpErr(T.exportErr); });
@@ -572,7 +672,7 @@ function InventoryTab(props) {
         addErr ? h('div',{style:{color:'#ff4d4f',fontSize:13,marginTop:8,fontWeight:600}},addErr) : null
       ) : null
     ),
-    // 库存统计
+    // 上架库存
     h('div',{className:'card'},
       h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8,marginBottom:12}},
         h('div',{className:'card-title',style:{marginBottom:0}},T.invTitle),
@@ -584,6 +684,7 @@ function InventoryTab(props) {
         )
       ),
       expErr ? h('div',{style:{color:'#ff4d4f',fontSize:13,marginBottom:8}},expErr) : null,
+      repMsg ? h('div',{style:{color:'#52c41a',fontSize:13,fontWeight:600,marginBottom:8}},repMsg) : null,
       items.length===0
         ? h('div',{style:{color:'#999',fontSize:14,padding:'16px 0',textAlign:'center'}},T.noData)
         : h('table',{className:'inv-table'},
@@ -613,7 +714,9 @@ function InventoryTab(props) {
                       h('div',{className:'inv-prod-sum'}, T.sumLabel+' '+(prodTotal+prodDefect))
                     ));
                   }
-                  cells.push(h('td',{key:'code',style:{fontFamily:'monospace',fontSize:14}}, it.code));
+                  cells.push(h('td',{key:'code',style:{fontFamily:'monospace',fontSize:14}},
+                    h('span',null, it.code),
+                    h('span',{className:'inv-add',title:T.replenishBtn,onClick:function(){ openReplenish(it); }},'+')));
                   cells.push(h('td',{key:'qty'},
                     h('div',{className:'inv-qty-wrap'},
                       h('input',{key:it.id+'-'+it.quantity,className:'inv-qty-input',type:'number',min:0,defaultValue:it.quantity,
@@ -636,32 +739,301 @@ function InventoryTab(props) {
             )
           ),
       h('div',{style:{fontSize:12,color:'#999',marginTop:8}},T.hint)
-    )
+    ),
+    // 调拨弹窗（从箱子库存添加正品库存）
+    rep ? h('div',{className:'modal-overlay',onClick:function(){ if(!repBusy) setRep(null); }},
+      h('div',{className:'modal-box',onClick:function(e){ e.stopPropagation(); }},
+        h('div',{className:'modal-title'},T.replenishTitle),
+        h('div',{className:'modal-hint'},
+          h('div',null, T.replenishCodeLabel + '：' + rep.item.code),
+          h('div',{style:{marginTop:4}}, rep.avail==null ? '' : (rep.avail>0 ? T.replenishAvail(rep.avail) : T.replenishNoBox))
+        ),
+        // 箱唛单选列表
+        h('div',{className:'modal-row'},
+          h('div',{className:'param-label'},T.replenishSelBox),
+          rep.boxes == null
+            ? h('div',{style:{fontSize:13,color:'#999'}},'…')
+            : (rep.boxes.length === 0
+                ? h('div',{style:{fontSize:13,color:'#cf1322',fontWeight:600}},T.replenishNoBox)
+                : h('div',null, rep.boxes.map(function(bx){
+                    var on = rep.selBoxId === bx.box_id;
+                    return h('label',{key:bx.box_id,className:'box-radio'+(on?' active':'')},
+                      h('input',{type:'radio',name:'wb_box_'+rep.item.id,checked:on,
+                        onChange:function(){ setRep(function(prev){ var o={}; for(var k in prev) o[k]=prev[k]; o.selBoxId=bx.box_id; return o; }); }}),
+                      h('span',{className:'box-radio-code'}, bx.box_code),
+                      h('span',{className:'box-radio-qty'}, T.boxAvail(bx.quantity)));
+                  })))
+        ),
+        h('div',{className:'modal-row'},
+          h('div',{className:'param-label'},T.replenishQtyLabel),
+          h('input',{className:'param-input',type:'number',min:1,autoFocus:true,value:rep.qty,placeholder:T.replenishPh,
+            onChange:function(e){ var val=e.target.value; setRep(function(prev){ var o={}; for(var k in prev) o[k]=prev[k]; o.qty=val; return o; }); },
+            onKeyDown:function(e){ if(e.key==='Enter') confirmReplenish(); }})
+        ),
+        repErr ? h('div',{style:{color:'#ff4d4f',fontSize:13,fontWeight:600}},repErr) : null,
+        h('div',{className:'modal-actions'},
+          h('button',{className:'btn btn-ghost',onClick:function(){ if(!repBusy) setRep(null); }},T.cancel),
+          h('button',{className:'btn btn-primary',disabled:repBusy || (rep.boxes && rep.boxes.length===0),onClick:confirmReplenish}, repBusy ? '…' : T.confirmBtn)
+        )
+      )
+    ) : null
+  );
+}
+
+var BOX_T = {
+  zh: {
+    addTitle: '➕ 添加箱子', expand: '展开', collapse: '收起',
+    boxCode: '箱唛编码', phBoxCode: '请输入箱唛编码', remark: '备注', phRemark: '选填',
+    model: '产品型号', phModel: '请输入产品型号', initQty: '初始库存',
+    addRowBtn: '＋ 添加一行', delRow: '删除该行', submitBtn: '提交',
+    needCode: '请填写箱唛编码', needModel: '请至少填写一个产品型号',
+    addOk: function(c){ return '✅ 已添加箱子 '+c; },
+    listTitle: '📦 箱子列表', noData: '暂无箱子，点击上方「添加箱子」录入',
+    colBox: '箱唛编码', colModel: '产品型号', colQty: '初始库存', colRemark: '备注', colAction: '操作',
+    delTitle: '删除箱子', delPrep: '确定删除箱子 ', delSuf: ' 及其所有型号？',
+    count: function(n){ return '共 '+n+' 个箱子'; }, models: function(n){ return n+' 个型号'; },
+    editTitle: '编辑箱子', save: '保存', cancel: '取消',
+    netErr: '网络错误', failed: '操作失败'
+  },
+  ru: {
+    addTitle: '➕ Добавить короб', expand: 'Развернуть', collapse: 'Свернуть',
+    boxCode: 'Код короба', phBoxCode: 'Введите код короба', remark: 'Примечание', phRemark: 'необязательно',
+    model: 'Модель товара', phModel: 'Введите модель', initQty: 'Начальный остаток',
+    addRowBtn: '＋ Добавить строку', delRow: 'Удалить строку', submitBtn: 'Отправить',
+    needCode: 'Укажите код короба', needModel: 'Укажите хотя бы одну модель',
+    addOk: function(c){ return '✅ Короб добавлен: '+c; },
+    listTitle: '📦 Список коробов', noData: 'Пока нет коробов — добавьте через форму выше',
+    colBox: 'Код короба', colModel: 'Модель', colQty: 'Остаток', colRemark: 'Примечание', colAction: 'Действие',
+    delTitle: 'Удалить короб', delPrep: 'Удалить короб ', delSuf: ' и все его модели?',
+    count: function(n){ return 'Всего коробов: '+n; }, models: function(n){ return n+' моделей'; },
+    editTitle: 'Редактировать короб', save: 'Сохранить', cancel: 'Отмена',
+    netErr: 'Ошибка сети', failed: 'Ошибка'
+  }
+};
+
+function BoxTab(props) {
+  var LG = useState(localStorage.getItem('wb_inv_lang') || 'zh'), lang = LG[0], setLang = LG[1];
+  function setL(l){ setLang(l); try { localStorage.setItem('wb_inv_lang', l); } catch(e){} }
+  var T = BOX_T[lang] || BOX_T.zh;
+  var S1 = useState([]), boxes = S1[0], setBoxes = S1[1];
+  var S2 = useState(''), bc = S2[0], setBc = S2[1];
+  var S3 = useState(''), brm = S3[0], setBrm = S3[1];
+  var S4 = useState([{id:'r0', model:'', qty:''}]), rows = S4[0], setRows = S4[1];
+  var S5 = useState(''), addErr = S5[0], setAddErr = S5[1];
+  var S6 = useState(''), addOk = S6[0], setAddOk = S6[1];
+  var S7 = useState(true), showAdd = S7[0], setShowAdd = S7[1];
+  var S8 = useState(null), editBox = S8[0], setEditBox = S8[1];   // 编辑箱子弹窗 {box, code, remark, err, busy}
+
+  function load() {
+    authFetch(API+'/boxes').then(function(r){return r.json();}).then(function(d){
+      if (d && d.boxes) setBoxes(d.boxes);
+    }).catch(function(){});
+  }
+  useEffect(function(){ load(); }, []);
+
+  function newRow() { return {id: 'r' + Date.now() + '_' + Math.random(), model: '', qty: ''}; }
+  function setRow(id, field, val) {
+    setRows(function(rs){ return rs.map(function(r){ if (r.id !== id) return r; var o = {}; for (var k in r) o[k] = r[k]; o[field] = val; return o; }); });
+  }
+  function addRow() { setRows(function(rs){ return rs.concat([newRow()]); }); }
+  function delRow(id) { setRows(function(rs){ return rs.length > 1 ? rs.filter(function(r){ return r.id !== id; }) : rs; }); }
+
+  function submitBox() {
+    setAddErr(''); setAddOk('');
+    if (!(bc || '').trim()) { setAddErr(T.needCode); return; }
+    var items = rows
+      .filter(function(r){ return (r.model || '').trim(); })
+      .map(function(r){ return { product_model: (r.model || '').trim(), quantity: parseInt(r.qty, 10) || 0 }; });
+    if (!items.length) { setAddErr(T.needModel); return; }
+    authFetch(API+'/boxes', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({box_code:(bc||'').trim(), remark:(brm||'').trim(), items:items})})
+      .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
+      .then(function(r){
+        if (r.status !== 200) { setAddErr(r.data.detail || T.failed); return; }
+        setAddOk(T.addOk(r.data.box.box_code));
+        setBc(''); setBrm(''); setRows([newRow()]);
+        load();
+      })
+      .catch(function(){ setAddErr(T.netErr); });
+  }
+
+  function saveQty(b, it, val) {
+    var v = parseInt(val, 10); if (isNaN(v) || v < 0) v = 0;
+    if (v === (it.quantity||0)) return;
+    authFetch(API+'/boxes/'+b.id+'/items/'+it.id+'/quantity', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({quantity:v})})
+      .then(function(r){ if (r.ok) load(); });
+  }
+
+  function delBox(b) {
+    if (!window.confirm(T.delPrep + b.box_code + T.delSuf)) return;
+    authFetch(API+'/boxes/'+b.id+'/delete', {method:'POST'}).then(function(){ load(); });
+  }
+
+  // 编辑箱唛编码 / 备注（点击 ✎ 图标弹窗）
+  function openBoxEdit(b) {
+    setEditBox({box: b, code: b.box_code || '', remark: b.remark || '', err: '', busy: false});
+  }
+  function saveEditBox() {
+    if (!editBox) return;
+    var code = (editBox.code || '').trim();
+    if (!code) { setEditBox(function(p){ var o={}; for(var k in p) o[k]=p[k]; o.err=T.needCode; return o; }); return; }
+    setEditBox(function(p){ var o={}; for(var k in p) o[k]=p[k]; o.busy=true; o.err=''; return o; });
+    authFetch(API+'/boxes/'+editBox.box.id+'/update', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({box_code: code, remark: (editBox.remark || '').trim()})})
+      .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
+      .then(function(r){
+        if (r.status === 200) { setEditBox(null); load(); }
+        else { setEditBox(function(p){ var o={}; for(var k in p) o[k]=p[k]; o.busy=false; o.err=(r.data && r.data.detail) || T.failed; return o; }); }
+      })
+      .catch(function(){ setEditBox(function(p){ var o={}; for(var k in p) o[k]=p[k]; o.busy=false; o.err=T.netErr; return o; }); });
+  }
+
+  var totalModels = boxes.reduce(function(s,b){ return s + (b.items ? b.items.length : 0); }, 0);
+
+  return h('div',null,
+    h('div',{style:{display:'flex',justifyContent:'flex-end',alignItems:'center',gap:6,marginBottom:12}},
+      h('span',{style:{fontSize:13,color:'#999'}},'🌐'),
+      ['zh','ru'].map(function(L){
+        return h('button',{key:L,className:'btn '+(lang===L?'btn-primary':'btn-ghost'),style:{padding:'4px 14px',fontSize:13},
+          onClick:function(){ setL(L); }}, L==='zh' ? '中文' : 'Русский');
+      })
+    ),
+    h('div',{className:'card'},
+      h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
+        h('div',{className:'card-title',style:{marginBottom:0}},T.addTitle),
+        h('button',{className:'btn btn-ghost',onClick:function(){setShowAdd(!showAdd);}}, showAdd?T.collapse:T.expand)
+      ),
+      showAdd ? h('div',{style:{marginTop:16}},
+        h('div',{style:{display:'flex',gap:12,flexWrap:'wrap'}},
+          h('div',{style:{flex:'0 0 300px'}},
+            h('div',{className:'param-label'},T.boxCode),
+            h('input',{className:'param-input',style:{textAlign:'left'},value:bc,placeholder:T.phBoxCode,onChange:function(e){setBc(e.target.value);}})
+          ),
+          h('div',{style:{flex:'1 1 260px'}},
+            h('div',{className:'param-label'},T.remark),
+            h('input',{className:'param-input',style:{textAlign:'left'},value:brm,placeholder:T.phRemark,onChange:function(e){setBrm(e.target.value);}})
+          )
+        ),
+        h('div',{style:{marginTop:14}},
+          h('div',{className:'box-batch-head'},
+            h('span',null,T.model), h('span',null,T.initQty), h('span',null,'')
+          ),
+          rows.map(function(r){
+            return h('div',{key:r.id,className:'box-batch-row'},
+              h('input',{className:'param-input',style:{textAlign:'left'},value:r.model,placeholder:T.phModel,onChange:function(e){setRow(r.id,'model',e.target.value);}}),
+              h('input',{className:'param-input',type:'number',min:0,value:r.qty,onChange:function(e){setRow(r.id,'qty',e.target.value);}}),
+              h('span',{className:'inv-del',title:T.delRow,onClick:function(){delRow(r.id);}},'✕')
+            );
+          }),
+          h('button',{className:'btn btn-ghost',style:{marginTop:8,fontSize:13},onClick:addRow},T.addRowBtn)
+        ),
+        h('div',{style:{marginTop:12,display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}},
+          h('button',{className:'btn btn-primary',style:{padding:'8px 28px'},onClick:submitBox},T.submitBtn),
+          addOk ? h('span',{style:{color:'#52c41a',fontSize:13,fontWeight:600}},addOk) : null
+        ),
+        addErr ? h('div',{style:{color:'#ff4d4f',fontSize:13,marginTop:8,fontWeight:600}},addErr) : null
+      ) : null
+    ),
+    h('div',{className:'card'},
+      h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8,marginBottom:12}},
+        h('div',{className:'card-title',style:{marginBottom:0}},T.listTitle),
+        h('span',{style:{fontSize:13,color:'#666'}}, T.count(boxes.length) + '　' + T.models(totalModels))
+      ),
+      boxes.length===0
+        ? h('div',{style:{color:'#999',fontSize:14,padding:'16px 0',textAlign:'center'}},T.noData)
+        : h('table',{className:'inv-table'},
+            h('thead',null,
+              h('tr',null,
+                h('th',{className:'inv-th'},T.colBox),
+                h('th',{className:'inv-th'},T.colModel),
+                h('th',{className:'inv-th',style:{width:170}},T.colQty),
+                h('th',{className:'inv-th',style:{width:180}},T.colRemark),
+                h('th',{className:'inv-th',style:{width:56,textAlign:'right'}},T.colAction)
+              )
+            ),
+            h('tbody',null,
+              [].concat.apply([], boxes.map(function(b){
+                var its = (b.items && b.items.length) ? b.items : [{id:'empty-'+b.id, product_model:'—', quantity:null, _empty:true}];
+                var span = its.length;
+                return its.map(function(it, idx){
+                  var cells = [];
+                  if (idx === 0) {
+                    cells.push(h('td',{key:'box',rowSpan:span,className:'inv-prod-cell'},
+                      h('div',{className:'inv-prod-name'}, b.box_code)));
+                  }
+                  cells.push(h('td',{key:'model',style:{fontFamily:'monospace',fontSize:14}}, it.product_model));
+                  cells.push(h('td',{key:'qty'},
+                    it._empty ? h('span',{style:{color:'#bbb'}},'') : h('div',{className:'inv-qty-wrap'},
+                      h('input',{key:it.id+'-'+it.quantity,className:'inv-qty-input',type:'number',min:0,defaultValue:it.quantity,
+                        onBlur:function(e){saveQty(b,it,e.target.value);},
+                        onKeyDown:function(e){ if(e.key==='Enter'){ e.target.blur(); } }}))
+                  ));
+                  if (idx === 0) {
+                    cells.push(h('td',{key:'rmk',rowSpan:span,style:{color:'#888',fontSize:13}}, b.remark || ''));
+                    cells.push(h('td',{key:'act',rowSpan:span,style:{textAlign:'right',whiteSpace:'nowrap'}},
+                      h('span',{className:'inv-edit',title:T.editTitle,onClick:function(){openBoxEdit(b);}},'✎'),
+                      h('span',{className:'inv-del',title:T.delTitle,onClick:function(){delBox(b);}},'✕')));
+                  }
+                  return h('tr',{key:it.id}, cells);
+                });
+              }))
+            )
+          )
+    ),
+    // ── 编辑箱子弹窗（箱唛编码 / 备注）──
+    editBox ? h('div',{className:'modal-overlay',onClick:function(){ if(!editBox.busy) setEditBox(null); }},
+      h('div',{className:'modal-box',onClick:function(e){ e.stopPropagation(); }},
+        h('div',{className:'modal-title'},T.editTitle),
+        h('div',{className:'modal-row'},
+          h('div',{className:'param-label'},T.colBox),
+          h('input',{className:'param-input',style:{textAlign:'left',fontFamily:'monospace'},autoFocus:true,value:editBox.code,
+            onChange:function(e){ var val=e.target.value; setEditBox(function(p){ var o={}; for(var k in p) o[k]=p[k]; o.code=val; return o; }); },
+            onKeyDown:function(e){ if(e.key==='Enter') saveEditBox(); }})
+        ),
+        h('div',{className:'modal-row'},
+          h('div',{className:'param-label'},T.remark),
+          h('input',{className:'param-input',style:{textAlign:'left'},value:editBox.remark,placeholder:T.phRemark,
+            onChange:function(e){ var val=e.target.value; setEditBox(function(p){ var o={}; for(var k in p) o[k]=p[k]; o.remark=val; return o; }); },
+            onKeyDown:function(e){ if(e.key==='Enter') saveEditBox(); }})
+        ),
+        editBox.err ? h('div',{style:{color:'#ff4d4f',fontSize:13,fontWeight:600}},editBox.err) : null,
+        h('div',{className:'modal-actions'},
+          h('button',{className:'btn btn-ghost',onClick:function(){ if(!editBox.busy) setEditBox(null); }},T.cancel),
+          h('button',{className:'btn btn-primary',disabled:editBox.busy,onClick:saveEditBox}, editBox.busy ? '…' : T.save)
+        )
+      )
+    ) : null
   );
 }
 
 var LOG_T = {
   zh: {
-    title: '📋 操作日志', sub: '记录每天的发货 / 退货操作，按天统计与查询',
+    title: '📋 操作日志', sub: '记录每天的发货 / 退货 / 调拨操作，按天统计与查询',
     dateLabel: '日期', todayBtn: '今天', prevBtn: '‹ 前一天', nextBtn: '后一天 ›', refreshBtn: '刷新',
     datesHint: '有记录的日期：', noDates: '暂无历史记录',
-    ship: '发货', rtn: '退货', shipDefect: '发货·次品',
-    sShip: '发货件数', sRet: '退货件数', sNet: '净变动', sOps: '操作笔数',
+    ship: '发货', rtn: '退货', shipDefect: '发货·次品', transfer: '调拨',
+    sShip: '发货件数', sRet: '退货件数', sTransfer: '调拨件数', sNet: '净变动', sOps: '操作笔数',
     codeTitle: '📊 按编码汇总', detailTitle: '📝 操作明细（按时间顺序）',
-    colProduct: '产品名', colCode: '编码', colShip: '发货', colRet: '退货', colQty: '正品库存', colDefect: '次品库存', colGood: '正品', colBad: '次品',
+    colProduct: '产品名', colCode: '编码', colShip: '发货', colTransfer: '调拨', colRet: '退货', colQty: '正品库存', colDefect: '次品库存', colGood: '正品', colBad: '次品',
     colTime: '时间', colType: '类型', colDelta: '变化',
-    noData: '当天暂无发货 / 退货记录', loading: '加载中...', loadErr: '加载失败，请重试',
+    colOp: '操作', delLogTitle: '删除该调拨记录',
+    delLogConfirm: function(code,delta,box){ return '确定删除这条调拨记录？\n将回滚库存：'+code+' 正品 -'+delta+(box?('，数量加回箱唛 '+box):'')+'。'; },
+    delLogOk: '✅ 已删除并回滚', delLogFail: '删除失败，请重试',
+    noData: '当天暂无发货 / 退货 / 调拨记录', loading: '加载中...', loadErr: '加载失败，请重试',
     totalRow: '合计'
   },
   ru: {
-    title: '📋 Журнал операций', sub: 'Отгрузки и возвраты по дням со статистикой',
+    title: '📋 Журнал операций', sub: 'Отгрузки, возвраты и перемещения по дням со статистикой',
     dateLabel: 'Дата', todayBtn: 'Сегодня', prevBtn: '‹ Пред. день', nextBtn: 'След. день ›', refreshBtn: 'Обновить',
     datesHint: 'Даты с записями: ', noDates: 'Нет истории',
-    ship: 'Отгрузка', rtn: 'Возврат', shipDefect: 'Отгрузка·брак',
-    sShip: 'Отгружено', sRet: 'Возвратов', sNet: 'Итог', sOps: 'Операций',
+    ship: 'Отгрузка', rtn: 'Возврат', shipDefect: 'Отгрузка·брак', transfer: 'Перемещение',
+    sShip: 'Отгружено', sRet: 'Возвратов', sTransfer: 'Перемещено', sNet: 'Итог', sOps: 'Операций',
     codeTitle: '📊 Сводка по кодам', detailTitle: '📝 Детали операций (по времени)',
-    colProduct: 'Товар', colCode: 'Код', colShip: 'Отгрузка', colRet: 'Возврат', colQty: 'Годный остаток', colDefect: 'Брак', colGood: 'Годный', colBad: 'Брак',
+    colProduct: 'Товар', colCode: 'Код', colShip: 'Отгрузка', colTransfer: 'Перемещение', colRet: 'Возврат', colQty: 'Годный остаток', colDefect: 'Брак', colGood: 'Годный', colBad: 'Брак',
     colTime: 'Время', colType: 'Тип', colDelta: 'Изм.',
+    colOp: 'Действие', delLogTitle: 'Удалить запись перемещения',
+    delLogConfirm: function(code,delta,box){ return 'Удалить эту запись перемещения?\nОткат: '+code+' годный -'+delta+(box?(', вернуть в короб '+box):'')+'.'; },
+    delLogOk: '✅ Удалено с откатом', delLogFail: 'Ошибка удаления, повторите',
     noData: 'За этот день нет записей', loading: 'Загрузка...', loadErr: 'Ошибка загрузки, повторите',
     totalRow: 'Итого'
   }
@@ -696,6 +1068,15 @@ function LogTab(props) {
   useEffect(function(){ load(); }, []);
 
   function go(d){ load(d); }
+
+  // 删除一条「调拨」记录（回滚库存）——仅调拨可删
+  function delLog(it) {
+    if (it.action !== 'transfer') return;
+    if (!window.confirm(T.delLogConfirm(it.code, it.delta, it.box_code))) return;
+    authFetch(API+'/inventory/logs/'+it.id+'/delete', {method:'POST'}).then(function(r){
+      if (r.ok) { load(date); } else { window.alert(T.delLogFail); }
+    }).catch(function(){ window.alert(T.delLogFail); });
+  }
 
   var sum = (data && data.summary) || {ship:0, return:0, net:0, total:0};
   var items = (data && data.items) || [];
@@ -734,6 +1115,7 @@ function LogTab(props) {
       h('div',{className:'log-stats'},
         h('div',{className:'log-stat ship'}, h('div',{className:'v'},sum.ship), h('div',{className:'l'},T.sShip)),
         h('div',{className:'log-stat ret'}, h('div',{className:'v'},sum.return), h('div',{className:'l'},T.sRet)),
+        h('div',{className:'log-stat tr'}, h('div',{className:'v'},sum.transfer||0), h('div',{className:'l'},T.sTransfer)),
         h('div',{className:'log-stat net'}, h('div',{className:'v'},netTxt), h('div',{className:'l'},T.sNet)),
         h('div',{className:'log-stat'}, h('div',{className:'v'},sum.total), h('div',{className:'l'},T.sOps))
       ),
@@ -755,6 +1137,7 @@ function LogTab(props) {
             h('th',{className:'inv-th'},T.colProduct),
             h('th',{className:'inv-th'},T.colCode),
             h('th',{className:'inv-th',style:{textAlign:'center'}},T.colShip),
+            h('th',{className:'inv-th',style:{textAlign:'center'}},T.colTransfer),
             h('th',{className:'inv-th',style:{textAlign:'center'}},T.colRet),
             h('th',{className:'inv-th',style:{textAlign:'center'}},T.colQty),
             h('th',{className:'inv-th',style:{textAlign:'center'}},T.colDefect)
@@ -765,6 +1148,7 @@ function LogTab(props) {
                 h('td',{style:{color:'#888',fontSize:13}}, r.product_name || ''),
                 h('td',{style:{fontFamily:'monospace',fontSize:14}}, r.code),
                 h('td',{style:{textAlign:'center',color:'#cf1322',fontWeight:600}}, r.ship||0),
+                h('td',{style:{textAlign:'center',color:'#d46b08',fontWeight:600}}, r.transfer||0),
                 h('td',{style:{textAlign:'center',color:'#389e0d',fontWeight:600}}, r.return||0),
                 h('td',{style:{textAlign:'center',color:'#666'}}, r.quantity_after),
                 h('td',{style:{textAlign:'center',color:((r.defect_after||0)>0?'#d46b08':'#ccc'),fontWeight:((r.defect_after||0)>0?700:400)}}, r.defect_after||0)
@@ -784,20 +1168,25 @@ function LogTab(props) {
           h('th',{className:'inv-th',style:{width:90}},T.colType),
           h('th',{className:'inv-th',style:{width:70,textAlign:'center'}},T.colDelta),
           h('th',{className:'inv-th',style:{width:80,textAlign:'center'}},T.colGood),
-          h('th',{className:'inv-th',style:{width:80,textAlign:'center'}},T.colBad)
+          h('th',{className:'inv-th',style:{width:80,textAlign:'center'}},T.colBad),
+          h('th',{className:'inv-th',style:{width:56,textAlign:'right'}},T.colOp)
         )),
         h('tbody',null,
           items.map(function(it){
             var isShip = it.action === 'ship';
+            var isTrans = it.action === 'transfer';
             var daf = it.defect_after||0;
+            var typeCls = isTrans ? 'tr' : (isShip ? 'ship' : 'ret');
+            var typeTxt = isTrans ? T.transfer : ((isShip && it.from_defect) ? T.shipDefect : (isShip ? T.ship : T.rtn));
             return h('tr',{key:it.id},
               h('td',{style:{color:'#888',fontFamily:'monospace'}}, it.time),
               h('td',{style:{color:'#888',fontSize:13}}, it.product_name || ''),
               h('td',{style:{fontFamily:'monospace',fontSize:14}}, it.code),
-              h('td',null, h('span',{className:'log-type '+(isShip?'ship':'ret')}, (isShip && it.from_defect) ? T.shipDefect : (isShip?T.ship:T.rtn))),
-              h('td',{style:{textAlign:'center'}}, h('span',{className:'log-delta '+(isShip?'neg':'pos')}, (it.delta>0?'+':'')+it.delta)),
+              h('td',null, h('span',{className:'log-type '+typeCls}, typeTxt)),
+              h('td',{style:{textAlign:'center'}}, h('span',{className:'log-delta '+((it.delta>0)?'pos':'neg')}, (it.delta>0?'+':'')+it.delta)),
               h('td',{style:{textAlign:'center',color:'#666'}}, it.quantity_after),
-              h('td',{style:{textAlign:'center',color:(daf>0?'#d46b08':'#ccc'),fontWeight:(daf>0?700:400)}}, daf)
+              h('td',{style:{textAlign:'center',color:(daf>0?'#d46b08':'#ccc'),fontWeight:(daf>0?700:400)}}, daf),
+              isTrans ? h('td',{style:{textAlign:'right'}}, h('span',{className:'inv-del',title:T.delLogTitle,onClick:function(){ delLog(it); }},'✕')) : h('td',null)
             );
           })
         )
@@ -816,7 +1205,8 @@ function Page(props) {
   var S4 = useState(12), fr = S4[0], setFr = S4[1];
 
   var tabs = [
-    {key:'inventory', label:'📦 库存统计'},
+    {key:'inventory', label:'📦 上架库存'},
+    {key:'box', label:'🗃 箱子库存'},
     {key:'logs', label:'📋 操作日志'},
     {key:'manual', label:'📎 手动处理'},
   ];
@@ -838,6 +1228,8 @@ function Page(props) {
     h('div',{className:'container'},
       tab==='inventory'
         ? h(InventoryTab,null)
+        : tab==='box'
+        ? h(BoxTab,null)
         : tab==='logs'
         ? h(LogTab,null)
         : h(ManualTab,{er:er,tr:tr,fr:fr,setEr:setEr,setTr:setTr,setFr:setFr})
