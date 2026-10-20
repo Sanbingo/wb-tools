@@ -12,7 +12,7 @@ import io, os, uuid, glob, tempfile, httpx, unicodedata
 from urllib.parse import quote
 
 from ..database import get_db
-from ..models import Sale, Order, Stock, DailySummary, SyncLog, UploadedReport, User, InventoryItem, InventoryLog, Box, BoxItem
+from ..models import Sale, Order, Stock, DailySummary, SyncLog, UploadedReport, User, InventoryItem, InventoryLog, Box, BoxItem, Store
 from ..services.wb_service import WBService
 from ..config import settings
 
@@ -1726,6 +1726,31 @@ def _inv_dict(i: InventoryItem) -> dict:
     }
 
 
+# ── 店铺 (Stores) ─────────────────────────────
+class StoreCreateRequest(BaseModel):
+    name: str
+
+
+@router.get("/stores")
+async def list_stores(username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """列出账号下的所有店铺。"""
+    r = await db.execute(select(Store).order_by(Store.id))
+    return {"stores": [{"id": s.id, "name": s.name} for s in r.scalars().all()]}
+
+
+@router.post("/stores")
+async def create_store(req: StoreCreateRequest, username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """新增店铺（名称必填）。"""
+    name = (req.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="店铺名不能为空")
+    s = Store(name=name)
+    db.add(s)
+    await db.commit()
+    await db.refresh(s)
+    return {"status": "success", "store": {"id": s.id, "name": s.name}}
+
+
 # ── 箱子库存 (Box inventory) ─────────────────────────────
 class BoxItemIn(BaseModel):
     product_model: str = ""
@@ -1763,23 +1788,23 @@ async def _box_items(db: AsyncSession, box_id: int):
 
 
 @router.get("/boxes")
-async def list_boxes(username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """列出所有箱子及里面的产品型号（按录入顺序）。"""
-    r = await db.execute(select(Box).order_by(Box.id))
+async def list_boxes(store_id: int = Query(1), username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """列出当前店铺的所有箱子及里面的产品型号（按录入顺序）。"""
+    r = await db.execute(select(Box).where(Box.store_id == store_id).order_by(Box.id))
     boxes = r.scalars().all()
     return {"boxes": [_box_dict(b, await _box_items(db, b.id)) for b in boxes]}
 
 
 @router.post("/boxes")
-async def add_box(req: BoxAddRequest, username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """新增一个箱子（箱唛编码唯一）+ 里面的产品型号/初始库存；编码重复返回 400。"""
+async def add_box(req: BoxAddRequest, store_id: int = Query(1), username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """新增一个箱子（箱唛编码在店铺内唯一）+ 里面的产品型号/初始库存；编码重复返回 400。"""
     code = (req.box_code or "").strip()
     if not code:
         raise HTTPException(status_code=400, detail="箱唛编码不能为空")
-    existing = await db.execute(select(Box).where(Box.box_code == code))
+    existing = await db.execute(select(Box).where(Box.box_code == code, Box.store_id == store_id))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail=f"箱唛编码 {code} 已存在")
-    box = Box(box_code=code, remark=(req.remark or "").strip())
+    box = Box(box_code=code, remark=(req.remark or "").strip(), store_id=store_id)
     db.add(box)
     await db.flush()
     for it in req.items:
@@ -1793,8 +1818,12 @@ async def add_box(req: BoxAddRequest, username: str = Depends(get_current_user),
 
 
 @router.post("/boxes/{box_id}/items/{item_id}/quantity")
-async def set_box_item_quantity(box_id: int, item_id: int, req: BoxQuantityRequest,
+async def set_box_item_quantity(box_id: int, item_id: int, req: BoxQuantityRequest, store_id: int = Query(1),
                                 username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    # 先确认箱子属于本店铺
+    br = await db.execute(select(Box).where(Box.id == box_id, Box.store_id == store_id))
+    if not br.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="箱子不存在")
     r = await db.execute(select(BoxItem).where(BoxItem.id == item_id, BoxItem.box_id == box_id))
     item = r.scalar_one_or_none()
     if not item:
@@ -1805,10 +1834,10 @@ async def set_box_item_quantity(box_id: int, item_id: int, req: BoxQuantityReque
 
 
 @router.post("/boxes/{box_id}/update")
-async def update_box(box_id: int, req: BoxUpdateRequest,
+async def update_box(box_id: int, req: BoxUpdateRequest, store_id: int = Query(1),
                      username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """编辑箱子的箱唛编码 / 备注（箱唛编码唯一）。"""
-    r = await db.execute(select(Box).where(Box.id == box_id))
+    """编辑箱子的箱唛编码 / 备注（箱唛编码在店铺内唯一）。"""
+    r = await db.execute(select(Box).where(Box.id == box_id, Box.store_id == store_id))
     box = r.scalar_one_or_none()
     if not box:
         raise HTTPException(status_code=404, detail="箱子不存在")
@@ -1816,7 +1845,7 @@ async def update_box(box_id: int, req: BoxUpdateRequest,
         code = (req.box_code or "").strip()
         if not code:
             raise HTTPException(status_code=400, detail="箱唛编码不能为空")
-        ex = await db.execute(select(Box).where(Box.box_code == code, Box.id != box_id))
+        ex = await db.execute(select(Box).where(Box.box_code == code, Box.store_id == store_id, Box.id != box_id))
         if ex.scalar_one_or_none():
             raise HTTPException(status_code=400, detail=f"箱唛编码 {code} 已存在")
         box.box_code = code
@@ -1828,8 +1857,8 @@ async def update_box(box_id: int, req: BoxUpdateRequest,
 
 
 @router.post("/boxes/{box_id}/delete")
-async def delete_box(box_id: int, username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    r = await db.execute(select(Box).where(Box.id == box_id))
+async def delete_box(box_id: int, store_id: int = Query(1), username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    r = await db.execute(select(Box).where(Box.id == box_id, Box.store_id == store_id))
     box = r.scalar_one_or_none()
     if not box:
         raise HTTPException(status_code=404, detail="箱子不存在")
@@ -1841,10 +1870,10 @@ async def delete_box(box_id: int, username: str = Depends(get_current_user), db:
 
 
 @router.get("/inventory/items")
-async def list_inventory(username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """List all inventory items (insertion order — id asc, no re-sorting)."""
+async def list_inventory(store_id: int = Query(1), username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """List current store's inventory items (insertion order — id asc, no re-sorting)."""
     result = await db.execute(
-        select(InventoryItem).order_by(InventoryItem.id)
+        select(InventoryItem).where(InventoryItem.store_id == store_id).order_by(InventoryItem.id)
     )
     items = result.scalars().all()
     return {"items": [_inv_dict(i) for i in items]}
@@ -1853,6 +1882,7 @@ async def list_inventory(username: str = Depends(get_current_user), db: AsyncSes
 @router.post("/inventory/items")
 async def add_inventory_item(
     req: InventoryAddRequest,
+    store_id: int = Query(1),
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1860,10 +1890,11 @@ async def add_inventory_item(
     code = (req.code or "").strip()
     if not code:
         raise HTTPException(status_code=400, detail="编码不能为空")
-    existing = await db.execute(select(InventoryItem).where(InventoryItem.code == code))
+    existing = await db.execute(select(InventoryItem).where(InventoryItem.code == code, InventoryItem.store_id == store_id))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail=f"编码 {code} 已存在")
     item = InventoryItem(
+        store_id=store_id,
         product_name=(req.product_name or "").strip(),
         code=code,
         quantity=int(req.quantity or 0),
@@ -1878,12 +1909,13 @@ async def add_inventory_item(
 @router.post("/inventory/items/batch")
 async def add_inventory_batch(
     req: InventoryBatchRequest,
+    store_id: int = Query(1),
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """批量添加：一个产品名 + 多行(编码/库存/备注)。
 
-    若任一编码已存在（或批内重复），整批不写入，返回冲突清单让用户检查。
+    若任一编码在当前店铺已存在（或批内重复），整批不写入，返回冲突清单让用户检查。
     """
     product_name = (req.product_name or "").strip()
     pairs = [(it, (it.code or "").strip()) for it in req.items]
@@ -1898,9 +1930,9 @@ async def add_inventory_batch(
             inner_dups.append(c)
         seen.add(c)
 
-    # 库内已存在
+    # 库内已存在（当前店铺）
     codes = [c for _, c in valid]
-    existing = await db.execute(select(InventoryItem.code).where(InventoryItem.code.in_(codes)))
+    existing = await db.execute(select(InventoryItem.code).where(InventoryItem.store_id == store_id, InventoryItem.code.in_(codes)))
     existing_codes = [row[0] for row in existing.all()]
 
     conflicts = list(dict.fromkeys(inner_dups + existing_codes))
@@ -1909,6 +1941,7 @@ async def add_inventory_batch(
 
     for it, c in valid:
         db.add(InventoryItem(
+            store_id=store_id,
             product_name=product_name,
             code=c,
             quantity=int(it.quantity or 0),
@@ -1921,6 +1954,7 @@ async def add_inventory_batch(
 @router.post("/inventory/ship")
 async def inventory_ship(
     req: InventoryScanRequest,
+    store_id: int = Query(1),
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1932,7 +1966,7 @@ async def inventory_ship(
     code = (req.code or "").strip()
     if not code:
         raise HTTPException(status_code=400, detail="编码不能为空")
-    result = await db.execute(select(InventoryItem).where(InventoryItem.code == code))
+    result = await db.execute(select(InventoryItem).where(InventoryItem.code == code, InventoryItem.store_id == store_id))
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail=f"未找到编码：{code}")
@@ -1954,6 +1988,7 @@ async def inventory_ship(
         raise HTTPException(status_code=400, detail=f"库存不足（{code} 正品与次品均为 0）")
     now_local = datetime.now()
     db.add(InventoryLog(
+        store_id=store_id,
         code=item.code,
         product_name=item.product_name or "",
         action="ship",
@@ -1972,6 +2007,7 @@ async def inventory_ship(
 @router.post("/inventory/return")
 async def inventory_return(
     req: InventoryScanRequest,
+    store_id: int = Query(1),
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1979,13 +2015,14 @@ async def inventory_return(
     code = (req.code or "").strip()
     if not code:
         raise HTTPException(status_code=400, detail="编码不能为空")
-    result = await db.execute(select(InventoryItem).where(InventoryItem.code == code))
+    result = await db.execute(select(InventoryItem).where(InventoryItem.code == code, InventoryItem.store_id == store_id))
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail=f"未找到编码：{code}")
     item.defective_quantity = (item.defective_quantity or 0) + 1
     now_local = datetime.now()
     db.add(InventoryLog(
+        store_id=store_id,
         code=item.code,
         product_name=item.product_name or "",
         action="return",
@@ -2004,11 +2041,12 @@ async def inventory_return(
 async def set_inventory_quantity(
     item_id: int,
     req: InventoryQuantityRequest,
+    store_id: int = Query(1),
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """手动改动：直接设置某编码的正品库存。"""
-    result = await db.execute(select(InventoryItem).where(InventoryItem.id == item_id))
+    result = await db.execute(select(InventoryItem).where(InventoryItem.id == item_id, InventoryItem.store_id == store_id))
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="库存项不存在")
@@ -2022,11 +2060,12 @@ async def set_inventory_quantity(
 async def set_inventory_defect(
     item_id: int,
     req: InventoryQuantityRequest,
+    store_id: int = Query(1),
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """手动改动：直接设置某编码的次品库存。"""
-    result = await db.execute(select(InventoryItem).where(InventoryItem.id == item_id))
+    result = await db.execute(select(InventoryItem).where(InventoryItem.id == item_id, InventoryItem.store_id == store_id))
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="库存项不存在")
@@ -2040,17 +2079,18 @@ async def set_inventory_defect(
 async def replenish_from_boxes(
     item_id: int,
     req: InventoryReplenishRequest,
+    store_id: int = Query(1),
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """从「箱子库存」调拨：按产品编码匹配箱子内的产品型号，扣减箱子库存并加到正品库存。
 
     - 匹配规则：库存编码 == 箱子内「产品型号」字符串（精确匹配，忽略首尾空格）
-    - 传 box_id：只从指定箱子扣；不传：按所有匹配箱子先进先出
+    - 传 box_id：只从指定箱子扣；不传：按当前店铺内所有匹配箱子先进先出
     - 无对应型号 / 库存不足 → 400 报错
     - 成功时写入操作日志（action=transfer 调拨）
     """
-    result = await db.execute(select(InventoryItem).where(InventoryItem.id == item_id))
+    result = await db.execute(select(InventoryItem).where(InventoryItem.id == item_id, InventoryItem.store_id == store_id))
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="库存项不存在")
@@ -2061,8 +2101,8 @@ async def replenish_from_boxes(
     code = (item.code or "").strip()
     box_code = None
     if req.box_id is not None:
-        # 指定箱唛：只从该箱子扣
-        br = await db.execute(select(Box).where(Box.id == req.box_id))
+        # 指定箱唛：只从该箱子扣（且必须是本店铺的箱子）
+        br = await db.execute(select(Box).where(Box.id == req.box_id, Box.store_id == store_id))
         box = br.scalar_one_or_none()
         if not box:
             raise HTTPException(status_code=404, detail="箱子不存在")
@@ -2077,8 +2117,12 @@ async def replenish_from_boxes(
         if available < qty:
             raise HTTPException(status_code=400, detail=f"箱子 {box_code} 库存不足（{available}，需调拨 {qty}）")
     else:
-        # 未指定：所有匹配该型号的箱子，先进先出
-        r = await db.execute(select(BoxItem).where(BoxItem.product_model == code).order_by(BoxItem.id))
+        # 未指定：当前店铺内所有匹配该型号的箱子，先进先出
+        r = await db.execute(
+            select(BoxItem).join(Box, Box.id == BoxItem.box_id)
+            .where(Box.store_id == store_id, BoxItem.product_model == code)
+            .order_by(BoxItem.id)
+        )
         matched = r.scalars().all()
         available = sum(int(b.quantity or 0) for b in matched)
         if available <= 0:
@@ -2098,6 +2142,7 @@ async def replenish_from_boxes(
     item.quantity = (item.quantity or 0) + qty
     now_local = datetime.now()
     db.add(InventoryLog(
+        store_id=store_id,
         code=item.code,
         product_name=item.product_name or "",
         action="transfer",
@@ -2117,11 +2162,12 @@ async def replenish_from_boxes(
 @router.post("/inventory/items/{item_id}/delete")
 async def delete_inventory_item(
     item_id: int,
+    store_id: int = Query(1),
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """删除某编码库存项。"""
-    result = await db.execute(select(InventoryItem).where(InventoryItem.id == item_id))
+    result = await db.execute(select(InventoryItem).where(InventoryItem.id == item_id, InventoryItem.store_id == store_id))
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="库存项不存在")
@@ -2131,10 +2177,10 @@ async def delete_inventory_item(
 
 
 @router.get("/inventory/export")
-async def export_inventory(username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def export_inventory(store_id: int = Query(1), username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """导出库存统计为 Excel（产品名 / 编码 / 正品库存 / 次品库存 / 备注），顺序与页面一致（录入顺序）。"""
     result = await db.execute(
-        select(InventoryItem).order_by(InventoryItem.id)
+        select(InventoryItem).where(InventoryItem.store_id == store_id).order_by(InventoryItem.id)
     )
     items = result.scalars().all()
 
@@ -2151,6 +2197,37 @@ async def export_inventory(username: str = Depends(get_current_user), db: AsyncS
     wb.save(buf)
     buf.seek(0)
     fname = "库存统计_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename*=UTF-8''" + quote(fname)},
+    )
+
+
+@router.get("/boxes/export")
+async def export_boxes(store_id: int = Query(1), username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """导出箱子库存为 Excel（箱唛编码 / 产品型号 / 初始库存 / 备注），按录入顺序。每行一条型号，箱唛/备注重复填写便于筛选。"""
+    r = await db.execute(select(Box).where(Box.store_id == store_id).order_by(Box.id))
+    boxes = r.scalars().all()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "箱子库存"
+    ws.append(["箱唛编码", "产品型号", "初始库存", "备注"])
+    style_header(ws)
+    for b in boxes:
+        items = await _box_items(db, b.id)
+        if not items:
+            ws.append([b.box_code, "", 0, b.remark or ""])
+        else:
+            for it in items:
+                ws.append([b.box_code, it.product_model or "", int(it.quantity or 0), b.remark or ""])
+    auto_width(ws)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = "箱子库存_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".xlsx"
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -2178,10 +2255,11 @@ def _inv_log_dict(l: InventoryLog) -> dict:
 @router.get("/inventory/logs")
 async def list_inventory_logs(
     date: Optional[str] = Query(None),
+    store_id: int = Query(1),
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """按天查询发货 / 退货操作日志并统计。
+    """按天查询发货 / 退货 / 调拨操作日志并统计（限当前店铺）。
 
     - `date` 省略时默认「今天」（服务器本地日期）
     - 返回当日每笔明细 + 按编码汇总 + 当日合计 + 有记录的日期列表
@@ -2189,14 +2267,15 @@ async def list_inventory_logs(
     today = datetime.now().strftime("%Y-%m-%d")
     day = (date or "").strip() or today
 
-    # 有记录的日期（供前端快速切换）
+    # 有记录的日期（供前端快速切换，限当前店铺）
     dres = await db.execute(
-        select(InventoryLog.log_date).distinct().order_by(desc(InventoryLog.log_date))
+        select(InventoryLog.log_date).where(InventoryLog.store_id == store_id)
+        .distinct().order_by(desc(InventoryLog.log_date))
     )
     dates = [r[0] for r in dres.all() if r[0]]
 
     result = await db.execute(
-        select(InventoryLog).where(InventoryLog.log_date == day).order_by(InventoryLog.id)
+        select(InventoryLog).where(InventoryLog.store_id == store_id, InventoryLog.log_date == day).order_by(InventoryLog.id)
     )
     logs = result.scalars().all()
 
@@ -2242,6 +2321,7 @@ async def list_inventory_logs(
 @router.post("/inventory/logs/{log_id}/delete")
 async def delete_inventory_log(
     log_id: int,
+    store_id: int = Query(1),
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -2250,7 +2330,7 @@ async def delete_inventory_log(
     - 仅允许删除 action == 'transfer' 的日志；发货 / 退货一律拒绝（400）
     - 来源箱子或型号已不存在时，仅回滚正品库存
     """
-    r = await db.execute(select(InventoryLog).where(InventoryLog.id == log_id))
+    r = await db.execute(select(InventoryLog).where(InventoryLog.id == log_id, InventoryLog.store_id == store_id))
     log = r.scalar_one_or_none()
     if not log:
         raise HTTPException(status_code=404, detail="日志不存在")
@@ -2260,9 +2340,9 @@ async def delete_inventory_log(
     delta = int(log.delta or 0)
     code = (log.code or "").strip()
 
-    # 1) 回滚正品库存
+    # 1) 回滚正品库存（限当前店铺）
     if code:
-        ir = await db.execute(select(InventoryItem).where(InventoryItem.code == code))
+        ir = await db.execute(select(InventoryItem).where(InventoryItem.code == code, InventoryItem.store_id == store_id))
         item = ir.scalar_one_or_none()
         if item:
             item.quantity = max(0, (item.quantity or 0) - delta)

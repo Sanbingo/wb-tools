@@ -1,9 +1,19 @@
-from sqlalchemy import Column, Integer, Float, String, DateTime, Boolean, BigInteger, Text, ForeignKey
+from sqlalchemy import Column, Integer, Float, String, DateTime, Boolean, BigInteger, Text, ForeignKey, UniqueConstraint
 from datetime import datetime
 from ..database import Base
 
 def _now():
     return datetime.utcnow()
+
+
+class Store(Base):
+    """店铺：一个账号下的多个店铺，库存/箱子/日志按 store_id 隔离。"""
+    __tablename__ = "stores"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False)
+    created_at = Column(DateTime, default=_now)
+
 
 class User(Base):
     __tablename__ = "users"
@@ -144,10 +154,14 @@ class UploadedReport(Base):
 
 class InventoryItem(Base):
     __tablename__ = "inventory_items"
+    __table_args__ = (
+        UniqueConstraint("code", "store_id", name="uq_inventory_items_code_store"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    store_id = Column(Integer, index=True, nullable=False, default=1)   # 所属店铺
     product_name = Column(String(200), index=True)          # 产品名（用户自由输入）
-    code = Column(String(200), unique=True, index=True, nullable=False)  # 编码（扫描目标，用户自由输入）
+    code = Column(String(200), index=True, nullable=False)  # 编码（扫描目标，店铺内唯一）
     quantity = Column(Integer, default=0)                   # 正品库存
     defective_quantity = Column(Integer, default=0)         # 次品库存
     remark = Column(String(500))                            # 备注
@@ -160,6 +174,7 @@ class InventoryLog(Base):
     __tablename__ = "inventory_logs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    store_id = Column(Integer, index=True, nullable=False, default=1)   # 所属店铺
     code = Column(String(200), index=True)                  # 编码（扫描目标）
     product_name = Column(String(200))                      # 产品名快照（便于统计，即使原项被删）
     action = Column(String(20), index=True)                 # ship=发货 / return=退货
@@ -174,11 +189,15 @@ class InventoryLog(Base):
 
 
 class Box(Base):
-    """箱子库存：一个箱子（箱唛编码唯一）一条记录，含箱级备注；下面挂多个产品型号。"""
+    """箱子库存：一个箱子（箱唛编码在店铺内唯一）一条记录，含箱级备注；下面挂多个产品型号。"""
     __tablename__ = "boxes"
+    __table_args__ = (
+        UniqueConstraint("box_code", "store_id", name="uq_boxes_box_code_store"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    box_code = Column(String(200), unique=True, index=True, nullable=False)  # 箱唛编码（唯一）
+    store_id = Column(Integer, index=True, nullable=False, default=1)   # 所属店铺
+    box_code = Column(String(200), index=True, nullable=False)  # 箱唛编码（店铺内唯一）
     remark = Column(String(500))                                            # 箱级备注
     created_at = Column(DateTime, default=_now)
     updated_at = Column(DateTime, default=_now, onupdate=_now)

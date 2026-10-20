@@ -27,3 +27,5 @@ Thumbs.db
 
 # Logs
 *.log
+# DB backups (local only)
+backups/

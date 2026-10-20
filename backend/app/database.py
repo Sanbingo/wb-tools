@@ -19,13 +19,18 @@ async def get_db():
 
 async def init_db():
     async with engine.begin() as conn:
-        from .models import Sale, Order, Stock, DailySummary, SyncLog, User, InventoryItem, InventoryLog, Box, BoxItem  # noqa
+        from .models import Sale, Order, Stock, DailySummary, SyncLog, User, InventoryItem, InventoryLog, Box, BoxItem, Store  # noqa
         await conn.run_sync(Base.metadata.create_all)
 
     # Seed default user
     async with async_session() as session:
-        from .models import User
+        from .models import User, Store
         existing = await session.execute(select(User).where(User.username == "WB"))
         if not existing.scalar_one_or_none():
             session.add(User(username="WB", password_hash=bcrypt.hash("000111")))
+            await session.commit()
+        # Seed 店铺1（现有/历史数据的归属店铺）
+        has_store = await session.execute(select(Store).limit(1))
+        if not has_store.scalar_one_or_none():
+            session.add(Store(name="店铺1"))
             await session.commit()
