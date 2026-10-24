@@ -807,6 +807,7 @@ var BOX_T = {
     colBox: '箱唛编码', colModel: '产品型号', colQty: '初始库存', colRemark: '备注', colAction: '操作',
     delTitle: '删除箱子', delPrep: '确定删除箱子 ', delSuf: ' 及其所有型号？',
     count: function(n){ return '共 '+n+' 个箱子'; }, models: function(n){ return n+' 个型号'; },
+    boxSum: '库存合计',
     editTitle: '编辑箱子', save: '保存', cancel: '取消',
     exportBtn: '📤 导出 Excel', exportErr: '导出失败，请重试',
     netErr: '网络错误', failed: '操作失败'
@@ -822,6 +823,7 @@ var BOX_T = {
     colBox: 'Код короба', colModel: 'Модель', colQty: 'Остаток', colRemark: 'Примечание', colAction: 'Действие',
     delTitle: 'Удалить короб', delPrep: 'Удалить короб ', delSuf: ' и все его модели?',
     count: function(n){ return 'Всего коробов: '+n; }, models: function(n){ return n+' моделей'; },
+    boxSum: 'Итого',
     editTitle: 'Редактировать короб', save: 'Сохранить', cancel: 'Отмена',
     exportBtn: '📤 Экспорт Excel', exportErr: 'Ошибка экспорта, повторите',
     netErr: 'Ошибка сети', failed: 'Ошибка'
@@ -989,11 +991,13 @@ function BoxTab(props) {
               [].concat.apply([], boxes.map(function(b){
                 var its = (b.items && b.items.length) ? b.items : [{id:'empty-'+b.id, product_model:'—', quantity:null, _empty:true}];
                 var span = its.length;
+                var boxTotal = (b.items || []).reduce(function(s, x){ return s + (parseInt(x.quantity || 0, 10) || 0); }, 0);
                 return its.map(function(it, idx){
                   var cells = [];
                   if (idx === 0) {
                     cells.push(h('td',{key:'box',rowSpan:span,className:'inv-prod-cell'},
-                      h('div',{className:'inv-prod-name'}, b.box_code)));
+                      h('div',{className:'inv-prod-name'}, b.box_code),
+                      h('div',{className:'inv-prod-sum'}, T.boxSum + ' ' + boxTotal)));
                   }
                   cells.push(h('td',{key:'model',style:{fontFamily:'monospace',fontSize:14}}, it.product_model));
                   cells.push(h('td',{key:'qty'},
