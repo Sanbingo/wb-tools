@@ -2235,6 +2235,82 @@ async def export_boxes(store_id: int = Query(1), username: str = Depends(get_cur
     )
 
 
+@router.get("/boxes/export-style")
+async def export_boxes_style(store_id: int = Query(1), username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """导出「款式库存汇总」看板数据为 Excel（款式 / 产品型号 / 库存数量）。
+
+    按款式聚合所有箱内同型号库存：款式 = 型号开头英文组合（破折号前 / 数字前的字母，如
+    FEDYH-15-L→FEDYH，SHGY20251500→SHGY）。每个款式附「款式小计」行，末尾附总计行。
+    """
+    import re as _re
+
+    def _style_key(model: str) -> str:
+        m = (model or "").strip()
+        if not m:
+            return "其他"
+        dash = m.find("-")
+        seg = m[:dash] if dash >= 0 else m
+        mm = _re.match(r"^[A-Za-z]+", seg)
+        return ((mm.group(0) if mm else seg) or m).upper()
+
+    r = await db.execute(select(Box).where(Box.store_id == store_id).order_by(Box.id))
+    boxes = r.scalars().all()
+
+    agg = {}      # style_key -> {"total": int, "models": {model: qty}, "order": [model...]}
+    order = []    # 保持款式首次出现顺序
+    for b in boxes:
+        items = await _box_items(db, b.id)
+        for it in items:
+            model = (it.product_model or "").strip()
+            if not model:
+                continue
+            key = _style_key(model)
+            qty = int(it.quantity or 0)
+            g = agg.get(key)
+            if g is None:
+                g = {"total": 0, "models": {}, "order": []}
+                agg[key] = g
+                order.append(key)
+            g["total"] += qty
+            if model not in g["models"]:
+                g["models"][model] = 0
+                g["order"].append(model)
+            g["models"][model] += qty
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "款式库存汇总"
+    ws.append(["款式", "产品型号", "库存数量"])
+    style_header(ws)
+    bold = Font(bold=True)
+    sub_fill = PatternFill("solid", fgColor="F2F2F2")
+    grand = 0
+    for key in order:
+        g = agg[key]
+        for model in g["order"]:
+            ws.append([key, model, int(g["models"][model])])
+        # 款式小计行
+        ws.append([key, "款式小计", int(g["total"])])
+        for cell in ws[ws.max_row]:
+            cell.font = bold
+            cell.fill = sub_fill
+        grand += g["total"]
+    ws.append(["合计", "", int(grand)])
+    for cell in ws[ws.max_row]:
+        cell.font = bold
+    auto_width(ws)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = "款式库存汇总_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename*=UTF-8''" + quote(fname)},
+    )
+
+
 # ── Inventory logs (操作日志：发货 / 退货，按天统计与查询) ──────────────
 
 def _inv_log_dict(l: InventoryLog) -> dict:

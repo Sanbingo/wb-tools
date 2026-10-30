@@ -96,6 +96,15 @@
     .inv-prod-zero { font-size: 11px; color: #cf1322; margin-top: 2px; }
     .inv-prod-defect { font-size: 11px; color: #d46b08; margin-top: 2px; }
     .inv-prod-sum { font-size: 11px; color: #666; margin-top: 2px; }
+    /* 款式库存汇总看板 */
+    .style-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+    .style-tile { border: 1px solid #eef0f3; border-radius: 10px; padding: 12px 14px; background: #fafcff; }
+    .style-tile-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+    .style-name { font-size: 16px; font-weight: 700; color: #1677ff; letter-spacing: .5px; }
+    .style-total { font-size: 13px; font-weight: 700; color: #cf1322; }
+    .style-models { display: flex; flex-wrap: wrap; gap: 6px 8px; }
+    .style-chip { font-size: 12px; background: #f0f4fa; border-radius: 6px; padding: 2px 8px; font-family: monospace; color: #555; }
+    .style-chip-qty { color: #cf1322; font-weight: 700; }
     .inv-qty-wrap { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     .inv-qty-wrap .inv-qty-input { width: 84px; flex: 0 0 auto; }
     .inv-zero-tag { color: #cf1322; font-weight: 700; font-size: 12px; white-space: nowrap; flex: 0 0 auto; }
@@ -808,6 +817,17 @@ var BOX_T = {
     delTitle: '删除箱子', delPrep: '确定删除箱子 ', delSuf: ' 及其所有型号？',
     count: function(n){ return '共 '+n+' 个箱子'; }, models: function(n){ return n+' 个型号'; },
     boxSum: '库存合计',
+    addBoxBtn: '＋ 添加箱子',
+    summary: function(styles, models, stock){ return '共 '+styles+' 个款式　'+models+' 个型号　总共 '+stock+' 库存'; },
+    styleBoardTitle: '📊 款式库存汇总', styleBoardSub: '按款式聚合所有箱内同型号库存',
+    styleTotal: function(n){ return '合计 '+n; },
+    styleExportBtn: '📤 导出汇总',
+    styleDetailHint: '点击查看该款式存放在哪些箱子',
+    styleDetailTitle: function(k){ return '款式 '+k+' · 存放明细'; },
+    styleDetailSub: function(total, n){ return '合计库存 '+total+' · 分布在 '+n+' 个箱子'; },
+    styleNoBox: '该款式暂无库存箱',
+    styleBoxQty: function(n){ return '小计 '+n; },
+    closeBtn: '关闭',
     editTitle: '编辑箱子', save: '保存', cancel: '取消',
     exportBtn: '📤 导出 Excel', exportErr: '导出失败，请重试',
     netErr: '网络错误', failed: '操作失败'
@@ -824,6 +844,17 @@ var BOX_T = {
     delTitle: 'Удалить короб', delPrep: 'Удалить короб ', delSuf: ' и все его модели?',
     count: function(n){ return 'Всего коробов: '+n; }, models: function(n){ return n+' моделей'; },
     boxSum: 'Итого',
+    addBoxBtn: '＋ Добавить короб',
+    summary: function(styles, models, stock){ return 'Всего '+styles+' фасонов　'+models+' моделей　остаток '+stock; },
+    styleBoardTitle: '📊 Сводка по фасонам', styleBoardSub: 'Агрегация остатков одинаковых моделей по всем коробам',
+    styleTotal: function(n){ return 'Итого '+n; },
+    styleExportBtn: '📤 Экспорт сводки',
+    styleDetailHint: 'Нажмите, чтобы увидеть, в каких коробах хранится фасон',
+    styleDetailTitle: function(k){ return 'Фасон '+k+' · размещение'; },
+    styleDetailSub: function(total, n){ return 'Итого остаток '+total+' · в '+n+' коробах'; },
+    styleNoBox: 'Нет коробов с остатком',
+    styleBoxQty: function(n){ return 'Подытог '+n; },
+    closeBtn: 'Закрыть',
     editTitle: 'Редактировать короб', save: 'Сохранить', cancel: 'Отмена',
     exportBtn: '📤 Экспорт Excel', exportErr: 'Ошибка экспорта, повторите',
     netErr: 'Ошибка сети', failed: 'Ошибка'
@@ -840,8 +871,9 @@ function BoxTab(props) {
   var S4 = useState([{id:'r0', model:'', qty:''}]), rows = S4[0], setRows = S4[1];
   var S5 = useState(''), addErr = S5[0], setAddErr = S5[1];
   var S6 = useState(''), addOk = S6[0], setAddOk = S6[1];
-  var S7 = useState(true), showAdd = S7[0], setShowAdd = S7[1];
+  var S7 = useState(false), showAdd = S7[0], setShowAdd = S7[1];
   var S8 = useState(null), editBox = S8[0], setEditBox = S8[1];   // 编辑箱子弹窗 {box, code, remark, err, busy}
+  var SD = useState(null), styleDetail = SD[0], setStyleDetail = SD[1];   // 款式存放明细弹窗 {key, total, ...}
 
   function load() {
     authFetch(API+'/boxes').then(function(r){return r.json();}).then(function(d){
@@ -859,6 +891,20 @@ function BoxTab(props) {
       var a = document.createElement('a');
       a.href = url;
       a.download = '箱子库存_' + new Date().toISOString().slice(0,10) + '.xlsx';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+    }).catch(function(){ alert(T.exportErr); });
+  }
+
+  function exportStyleBoard() {
+    authFetch(API+'/boxes/export-style').then(function(r){
+      if (!r.ok) throw new Error('fail');
+      return r.blob();
+    }).then(function(blob){
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = '款式库存汇总_' + new Date().toISOString().slice(0,10) + '.xlsx';
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
     }).catch(function(){ alert(T.exportErr); });
@@ -885,6 +931,7 @@ function BoxTab(props) {
         if (r.status !== 200) { setAddErr(r.data.detail || T.failed); return; }
         setAddOk(T.addOk(r.data.box.box_code));
         setBc(''); setBrm(''); setRows([newRow()]);
+        setShowAdd(false);
         load();
       })
       .catch(function(){ setAddErr(T.netErr); });
@@ -922,6 +969,41 @@ function BoxTab(props) {
   }
 
   var totalModels = boxes.reduce(function(s,b){ return s + (b.items ? b.items.length : 0); }, 0);
+  var totalStock = boxes.reduce(function(s,b){
+    return s + ((b.items || []).reduce(function(ss,x){ return ss + (parseInt(x.quantity || 0, 10) || 0); }, 0));
+  }, 0);
+
+  // 按款式聚合：款式 = 型号开头英文（破折号前 / 数字前的字母组合，如 FEDYH-15-L→FEDYH，SHGY20251500→SHGY）
+  function styleKeyOf(model){
+    var m = (model || '').trim();
+    if (!m) return '其他';
+    var dash = m.indexOf('-');
+    var seg = dash >= 0 ? m.slice(0, dash) : m;
+    var mm = seg.match(/^[A-Za-z]+/);
+    return ((mm ? mm[0] : seg) || m).toUpperCase();
+  }
+  var styleAgg = {}, styleOrder = [];
+  boxes.forEach(function(b){
+    (b.items || []).forEach(function(it){
+      var model = (it.product_model || '').trim();
+      if (!model) return;
+      var key = styleKeyOf(model);
+      var qty = parseInt(it.quantity || 0, 10) || 0;
+      if (!styleAgg[key]) { styleAgg[key] = {total: 0, models: {}, order: [], boxes: {}, boxOrder: []}; styleOrder.push(key); }
+      var g = styleAgg[key];
+      g.total += qty;
+      if (!(model in g.models)) { g.models[model] = 0; g.order.push(model); }
+      g.models[model] += qty;
+      // 记录该款式在每个箱子内的存放明细（供点击卡片查看）
+      var bid = b.id;
+      if (!g.boxes[bid]) { g.boxes[bid] = {box_code: b.box_code, remark: b.remark || '', models: {}, order: [], total: 0}; g.boxOrder.push(bid); }
+      var gb = g.boxes[bid];
+      if (!(model in gb.models)) { gb.models[model] = 0; gb.order.push(model); }
+      gb.models[model] += qty;
+      gb.total += qty;
+    });
+  });
+  var styleList = styleOrder.map(function(k){ var g = styleAgg[k]; return {key: k, total: g.total, order: g.order, models: g.models, boxes: g.boxes, boxOrder: g.boxOrder}; });
 
   return h('div',null,
     h('div',{style:{display:'flex',justifyContent:'flex-end',alignItems:'center',gap:6,marginBottom:12}},
@@ -931,47 +1013,49 @@ function BoxTab(props) {
           onClick:function(){ setL(L); }}, L==='zh' ? '中文' : 'Русский');
       })
     ),
+    // ── 款式库存汇总看板（按款式聚合所有箱内同型号库存）──
     h('div',{className:'card'},
-      h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center'}},
-        h('div',{className:'card-title',style:{marginBottom:0}},T.addTitle),
-        h('button',{className:'btn btn-ghost',onClick:function(){setShowAdd(!showAdd);}}, showAdd?T.collapse:T.expand)
+      h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10,marginBottom:14}},
+        h('div',{style:{display:'flex',alignItems:'baseline',gap:8,flexWrap:'wrap'}},
+          h('div',{className:'card-title',style:{marginBottom:0}},T.styleBoardTitle),
+          h('span',{style:{fontSize:12,color:'#999'}},T.styleBoardSub)
+        ),
+        styleList.length>0 ? h('button',{className:'btn btn-success',style:{padding:'6px 14px',fontSize:13},onClick:exportStyleBoard},T.styleExportBtn) : null
       ),
-      showAdd ? h('div',{style:{marginTop:16}},
-        h('div',{style:{display:'flex',gap:12,flexWrap:'wrap'}},
-          h('div',{style:{flex:'0 0 300px'}},
-            h('div',{className:'param-label'},T.boxCode),
-            h('input',{className:'param-input',style:{textAlign:'left'},value:bc,placeholder:T.phBoxCode,onChange:function(e){setBc(e.target.value);}})
-          ),
-          h('div',{style:{flex:'1 1 260px'}},
-            h('div',{className:'param-label'},T.remark),
-            h('input',{className:'param-input',style:{textAlign:'left'},value:brm,placeholder:T.phRemark,onChange:function(e){setBrm(e.target.value);}})
+      styleList.length===0
+        ? h('div',{style:{color:'#999',fontSize:14,padding:'16px 0',textAlign:'center'}},T.noData)
+        : h('div',{className:'style-grid'},
+            styleList.map(function(s){
+              return h('div',{key:s.key,className:'style-tile',style:{cursor:'pointer'},title:T.styleDetailHint,onClick:function(){ setStyleDetail(s); }},
+                h('div',{className:'style-tile-head'},
+                  h('span',{className:'style-name'}, s.key),
+                  h('span',{className:'style-total'}, T.styleTotal(s.total))
+                ),
+                h('div',{className:'style-models'},
+                  s.order.map(function(m){
+                    var sub = m;
+                    if (m.toUpperCase().indexOf(s.key) === 0) sub = m.slice(s.key.length);
+                    sub = sub.replace(/^[-_\s]+/, '');
+                    if (!sub) sub = m;
+                    return h('span',{key:m,className:'style-chip'},
+                      h('span',null, sub + ' '),
+                      h('span',{className:'style-chip-qty'}, String(s.models[m]))
+                    );
+                  })
+                )
+              );
+            })
           )
-        ),
-        h('div',{style:{marginTop:14}},
-          h('div',{className:'box-batch-head'},
-            h('span',null,T.model), h('span',null,T.initQty), h('span',null,'')
-          ),
-          rows.map(function(r){
-            return h('div',{key:r.id,className:'box-batch-row'},
-              h('input',{className:'param-input',style:{textAlign:'left'},value:r.model,placeholder:T.phModel,onChange:function(e){setRow(r.id,'model',e.target.value);}}),
-              h('input',{className:'param-input',type:'number',min:0,value:r.qty,onChange:function(e){setRow(r.id,'qty',e.target.value);}}),
-              h('span',{className:'inv-del',title:T.delRow,onClick:function(){delRow(r.id);}},'✕')
-            );
-          }),
-          h('button',{className:'btn btn-ghost',style:{marginTop:8,fontSize:13},onClick:addRow},T.addRowBtn)
-        ),
-        h('div',{style:{marginTop:12,display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}},
-          h('button',{className:'btn btn-primary',style:{padding:'8px 28px'},onClick:submitBox},T.submitBtn),
-          addOk ? h('span',{style:{color:'#52c41a',fontSize:13,fontWeight:600}},addOk) : null
-        ),
-        addErr ? h('div',{style:{color:'#ff4d4f',fontSize:13,marginTop:8,fontWeight:600}},addErr) : null
-      ) : null
     ),
+    // 统计行（位于「添加箱子」与「箱子列表」两个模块之间）
+    h('div',{style:{textAlign:'center',fontSize:14,color:'#555',fontWeight:600,padding:'10px 0',letterSpacing:0.3}},
+      T.summary(boxes.length, totalModels, totalStock)),
     h('div',{className:'card'},
       h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8,marginBottom:12}},
         h('div',{className:'card-title',style:{marginBottom:0}},T.listTitle),
         h('div',{style:{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
-          h('span',{style:{fontSize:13,color:'#666'}}, T.count(boxes.length) + '　' + T.models(totalModels)),
+          addOk ? h('span',{style:{fontSize:13,color:'#52c41a',fontWeight:600}},addOk) : null,
+          h('button',{className:'btn btn-primary',style:{padding:'6px 14px',fontSize:13},onClick:function(){ setAddErr(''); setAddOk(''); setShowAdd(true); }},T.addBoxBtn),
           boxes.length>0 ? h('button',{className:'btn btn-success',style:{padding:'6px 14px',fontSize:13},onClick:exportBoxes},T.exportBtn) : null
         )
       ),
@@ -1018,6 +1102,40 @@ function BoxTab(props) {
             )
           )
     ),
+    // ── 添加箱子弹窗 ──
+    showAdd ? h('div',{className:'modal-overlay',onClick:function(){ setShowAdd(false); }},
+      h('div',{className:'modal-box',style:{width:'560px',maxWidth:'94vw'},onClick:function(e){ e.stopPropagation(); }},
+        h('div',{className:'modal-title'},T.addTitle),
+        h('div',{style:{display:'flex',gap:12,flexWrap:'wrap'}},
+          h('div',{style:{flex:'0 0 240px'}},
+            h('div',{className:'param-label'},T.boxCode),
+            h('input',{className:'param-input',style:{textAlign:'left'},value:bc,placeholder:T.phBoxCode,onChange:function(e){setBc(e.target.value);}})
+          ),
+          h('div',{style:{flex:'1 1 220px'}},
+            h('div',{className:'param-label'},T.remark),
+            h('input',{className:'param-input',style:{textAlign:'left'},value:brm,placeholder:T.phRemark,onChange:function(e){setBrm(e.target.value);}})
+          )
+        ),
+        h('div',{style:{marginTop:14}},
+          h('div',{className:'box-batch-head'},
+            h('span',null,T.model), h('span',null,T.initQty), h('span',null,'')
+          ),
+          rows.map(function(r){
+            return h('div',{key:r.id,className:'box-batch-row'},
+              h('input',{className:'param-input',style:{textAlign:'left'},value:r.model,placeholder:T.phModel,onChange:function(e){setRow(r.id,'model',e.target.value);}}),
+              h('input',{className:'param-input',type:'number',min:0,value:r.qty,onChange:function(e){setRow(r.id,'qty',e.target.value);}}),
+              h('span',{className:'inv-del',title:T.delRow,onClick:function(){delRow(r.id);}},'✕')
+            );
+          }),
+          h('button',{className:'btn btn-ghost',style:{marginTop:8,fontSize:13},onClick:addRow},T.addRowBtn)
+        ),
+        addErr ? h('div',{style:{color:'#ff4d4f',fontSize:13,marginTop:10,fontWeight:600}},addErr) : null,
+        h('div',{className:'modal-actions'},
+          h('button',{className:'btn btn-ghost',onClick:function(){ setShowAdd(false); }},T.cancel),
+          h('button',{className:'btn btn-primary',onClick:submitBox},T.submitBtn)
+        )
+      )
+    ) : null,
     // ── 编辑箱子弹窗（箱唛编码 / 备注）──
     editBox ? h('div',{className:'modal-overlay',onClick:function(){ if(!editBox.busy) setEditBox(null); }},
       h('div',{className:'modal-box',onClick:function(e){ e.stopPropagation(); }},
@@ -1040,7 +1158,50 @@ function BoxTab(props) {
           h('button',{className:'btn btn-primary',disabled:editBox.busy,onClick:saveEditBox}, editBox.busy ? '…' : T.save)
         )
       )
-    ) : null
+    ) : null,
+    // ── 款式存放明细弹窗（点击看板卡片，查看该款式存放在哪些箱子）──
+    styleDetail ? (function(){
+      var activeBoxes = (styleDetail.boxOrder || []).filter(function(bid){ return styleDetail.boxes[bid].total > 0; });
+      return h('div',{className:'modal-overlay',onClick:function(){ setStyleDetail(null); }},
+        h('div',{className:'modal-box',style:{width:'620px',maxWidth:'94vw',maxHeight:'82vh',overflowY:'auto'},onClick:function(e){ e.stopPropagation(); }},
+          h('div',{className:'modal-title'}, T.styleDetailTitle(styleDetail.key)),
+          h('div',{style:{fontSize:13,color:'#888',marginBottom:14}},
+            T.styleDetailSub(styleDetail.total, activeBoxes.length)),
+          activeBoxes.length === 0
+            ? h('div',{style:{color:'#999',fontSize:14,padding:'16px 0',textAlign:'center'}},T.styleNoBox)
+            : h('div',{style:{display:'flex',flexDirection:'column',gap:12}},
+                activeBoxes.map(function(bid){
+                  var gb = styleDetail.boxes[bid];
+                  var posModels = gb.order.filter(function(m){ return gb.models[m] > 0; });
+                  return h('div',{key:bid,style:{border:'1px solid #eef0f3',borderRadius:8,padding:'10px 12px',background:'#fafcff'}},
+                    h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:8,gap:8}},
+                      h('div',null,
+                        h('span',{style:{fontSize:12,color:'#999',marginRight:6}},'📦'),
+                        h('span',{style:{fontWeight:700,fontFamily:'monospace',fontSize:14,color:'#333'}}, gb.box_code),
+                        gb.remark ? h('span',{style:{marginLeft:8,fontSize:12,color:'#999'}}, gb.remark) : null
+                      ),
+                      h('span',{style:{fontSize:13,color:'#cf1322',fontWeight:700,whiteSpace:'nowrap'}}, T.styleBoxQty(gb.total))
+                    ),
+                    h('div',{style:{display:'flex',flexWrap:'wrap',gap:6}},
+                      posModels.map(function(m){
+                        var sub = m;
+                        if (m.toUpperCase().indexOf(styleDetail.key) === 0) sub = m.slice(styleDetail.key.length);
+                        sub = sub.replace(/^[-_\s]+/, ''); if (!sub) sub = m;
+                        return h('span',{key:m,className:'style-chip'},
+                          h('span',null, sub + ' '),
+                          h('span',{className:'style-chip-qty'}, String(gb.models[m]))
+                        );
+                      })
+                    )
+                  );
+                })
+              ),
+          h('div',{className:'modal-actions'},
+            h('button',{className:'btn btn-ghost',onClick:function(){ setStyleDetail(null); }}, T.closeBtn)
+          )
+        )
+      );
+    })() : null
   );
 }
 
