@@ -12,7 +12,7 @@ import io, os, uuid, glob, tempfile, httpx, unicodedata
 from urllib.parse import quote
 
 from ..database import get_db
-from ..models import Sale, Order, Stock, DailySummary, SyncLog, UploadedReport, User, InventoryItem, InventoryLog, Box, BoxItem, Store
+from ..models import Sale, Order, Stock, DailySummary, SyncLog, UploadedReport, User, InventoryItem, InventoryLog, Box, BoxItem, Store, InboundWaybill, InboundItem
 from ..services.wb_service import WBService
 from ..config import settings
 
@@ -2440,3 +2440,304 @@ async def delete_inventory_log(
     await db.delete(log)
     await db.commit()
     return {"status": "success"}
+
+
+# ── 在库库存（在途运单：上传装箱模板 → 汇总+明细，确认到货 / 下载原始文件）──
+
+INBOUND_DIR = "/home/admin/wbtools/backend/uploads/inbound/"
+
+
+def _parse_inbound_workbook(path: str) -> dict:
+    """解析装箱模板 Excel，返回 {"summary": {...}, "items": [...]}。
+
+    兼容两种布局：
+    - 两页：`数据汇总`（标签/值成对）+ `数据明细`（表头 箱唛/品名/条形码/尺码/数量）
+    - 单页合并：顶部汇总块 + 下方明细表
+    明细中箱唛为空表示沿用上一个箱，空行作为箱组分隔（跳过）。
+    """
+    from openpyxl import load_workbook
+
+    wb = load_workbook(path, data_only=True)
+    names = wb.sheetnames or []
+
+    def pick(*keys):
+        for n in names:
+            for k in keys:
+                if k in n:
+                    return wb[n]
+        return None
+
+    summary_ws = pick("汇总", "匯總") or (wb[names[0]] if names else None)
+    detail_ws = pick("明细", "明細") or (wb[names[0]] if names else None)
+
+    def norm(v):
+        if v is None:
+            return ""
+        if isinstance(v, float) and v.is_integer():
+            return str(int(v))
+        return str(v).strip()
+
+    # 1) 汇总：扫描单元格，命中标签则取右侧相邻单元格为值
+    label_map = {
+        "日期": "ship_date", "時間": "ship_date", "时间": "ship_date",
+        "运单号": "waybill_no", "運單號": "waybill_no", "运单": "waybill_no",
+        "重量kg": "weight", "重量/kg": "weight", "重量": "weight",
+        "件数": "pieces", "件數": "pieces",
+        "方数m³": "volume", "方数": "volume", "方數": "volume", "体积": "volume", "立方": "volume",
+        "服务商": "provider", "服務商": "provider", "物流商": "provider",
+    }
+    summary = {}
+    if summary_ws is not None:
+        for row in summary_ws.iter_rows(values_only=True):
+            cells = list(row)
+            for ci, c in enumerate(cells):
+                if c is None:
+                    continue
+                key = label_map.get(str(c).strip())
+                if key and key not in summary and ci + 1 < len(cells):
+                    val = norm(cells[ci + 1])
+                    if val:
+                        summary[key] = val
+
+    # 2) 明细：定位表头行（含 箱唛 且 数量），按表头列名映射读取
+    items = []
+    rows = list(detail_ws.iter_rows(values_only=True)) if detail_ws is not None else []
+    header_idx = None
+    colmap = {}
+    for ri, row in enumerate(rows):
+        vals = [norm(x) for x in row]
+        joined = "".join(vals)
+        if ("箱唛" in joined or "箱嘜" in joined) and ("数量" in joined or "數量" in joined):
+            header_idx = ri
+            for ci, v in enumerate(vals):
+                if "箱唛" in v or "箱嘜" in v:
+                    colmap["box"] = ci
+                elif "品名" in v or "品項" in v:
+                    colmap["name"] = ci
+                elif "条形码" in v or "條形碼" in v or "条码" in v or "编码" in v:
+                    colmap["barcode"] = ci
+                elif "尺码" in v or "尺碼" in v or "尺寸" in v:
+                    colmap["size"] = ci
+                elif "数量" in v or "數量" in v:
+                    colmap["qty"] = ci
+            break
+
+    if header_idx is not None and "qty" in colmap:
+        def getc(vals, key):
+            ci = colmap.get(key)
+            return vals[ci] if (ci is not None and ci < len(vals)) else ""
+
+        current_box = ""
+        for row in rows[header_idx + 1:]:
+            svals = [norm(x) for x in row]
+            box_v = getc(svals, "box")
+            name_v = getc(svals, "name")
+            bar_v = getc(svals, "barcode")
+            size_v = getc(svals, "size")
+            qty_raw = getc(svals, "qty")
+            # 跳过全空的分隔行
+            if not any([box_v, name_v, bar_v, size_v, qty_raw]):
+                continue
+            if box_v:
+                current_box = box_v
+            try:
+                q = int(float(str(qty_raw).replace(",", "").strip())) if str(qty_raw).strip() != "" else 0
+            except Exception:
+                q = 0
+            # 无有效内容（无品名/条码/尺码且数量为0）的行视为分隔，跳过
+            if not name_v and not bar_v and not size_v and q == 0:
+                continue
+            items.append({
+                "box_code": box_v or current_box,
+                "product_name": name_v,
+                "barcode": bar_v,
+                "size": size_v,
+                "quantity": q,
+            })
+
+    return {"summary": summary, "items": items}
+
+
+def _inbound_dict(w, item_count=0, total_qty=0) -> dict:
+    return {
+        "id": w.id,
+        "waybill_no": w.waybill_no or "",
+        "ship_date": w.ship_date or "",
+        "weight": w.weight or "",
+        "pieces": w.pieces or "",
+        "volume": w.volume or "",
+        "provider": w.provider or "",
+        "status": w.status or "运输中",
+        "filename": w.filename or "",
+        "created_at": w.created_at.strftime("%Y-%m-%d %H:%M") if w.created_at else "",
+        "completed_at": w.completed_at.strftime("%Y-%m-%d %H:%M") if w.completed_at else "",
+        "item_count": item_count,
+        "total_qty": total_qty,
+    }
+
+
+def _inbound_item_dict(i) -> dict:
+    return {
+        "id": i.id,
+        "box_code": i.box_code or "",
+        "product_name": i.product_name or "",
+        "barcode": i.barcode or "",
+        "size": i.size or "",
+        "quantity": int(i.quantity or 0),
+    }
+
+
+@router.post("/inbound/upload")
+async def inbound_upload(
+    file: UploadFile = File(...),
+    store_id: int = Query(1),
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """上传装箱模板文件（xlsx）：解析汇总与明细，生成一条在途运单，并保留原始文件供原封不动下载。"""
+    if not (file.filename or "").lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(status_code=400, detail="仅支持 .xlsx / .xls 文件")
+    os.makedirs(INBOUND_DIR, exist_ok=True)
+    file_path = os.path.join(INBOUND_DIR, f"{uuid.uuid4()}_{file.filename}")
+    content = await file.read()
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    try:
+        parsed = _parse_inbound_workbook(file_path)
+    except Exception as e:
+        try:
+            os.remove(file_path)
+        except Exception:
+            pass
+        raise HTTPException(status_code=400, detail=f"解析失败：{e}")
+
+    summary = parsed["summary"]
+    items = parsed["items"]
+    if not items:
+        try:
+            os.remove(file_path)
+        except Exception:
+            pass
+        raise HTTPException(status_code=400, detail="未解析到明细数据，请检查模板格式（需含 箱唛/品名/条形码/尺码/数量 表头）")
+
+    w = InboundWaybill(
+        store_id=store_id,
+        waybill_no=summary.get("waybill_no", ""),
+        ship_date=summary.get("ship_date", ""),
+        weight=summary.get("weight", ""),
+        pieces=summary.get("pieces", ""),
+        volume=summary.get("volume", ""),
+        provider=summary.get("provider", ""),
+        status="运输中",
+        filename=file.filename,
+        file_path=file_path,
+    )
+    db.add(w)
+    await db.flush()
+    for idx, it in enumerate(items):
+        db.add(InboundItem(
+            waybill_id=w.id,
+            box_code=it["box_code"],
+            product_name=it["product_name"],
+            barcode=it["barcode"],
+            size=it["size"],
+            quantity=it["quantity"],
+            row_order=idx,
+        ))
+    await db.commit()
+    await db.refresh(w)
+    return {"status": "success", "id": w.id, "waybill_no": w.waybill_no, "items": len(items)}
+
+
+@router.get("/inbound/list")
+async def inbound_list(
+    store_id: int = Query(1),
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """在途运单列表（限当前店铺），含数据汇总 + 运单状态 + 明细条数/总数量。"""
+    r = await db.execute(
+        select(InboundWaybill).where(InboundWaybill.store_id == store_id).order_by(desc(InboundWaybill.id))
+    )
+    rows = r.scalars().all()
+    out = []
+    for w in rows:
+        cnt = await db.execute(select(func.count(InboundItem.id)).where(InboundItem.waybill_id == w.id))
+        qty = await db.execute(select(func.coalesce(func.sum(InboundItem.quantity), 0)).where(InboundItem.waybill_id == w.id))
+        out.append(_inbound_dict(w, int(cnt.scalar() or 0), int(qty.scalar() or 0)))
+    return {"waybills": out}
+
+
+@router.get("/inbound/active-count")
+async def inbound_active_count(
+    store_id: int = Query(1),
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """运输中的在途运单数量（可作角标提示）。"""
+    r = await db.execute(
+        select(func.count(InboundWaybill.id)).where(
+            InboundWaybill.store_id == store_id, InboundWaybill.status == "运输中"
+        )
+    )
+    return {"count": int(r.scalar() or 0)}
+
+
+@router.get("/inbound/{wid}")
+async def inbound_detail(
+    wid: int,
+    store_id: int = Query(1),
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """单个运单的形状 + 明细（按原始行顺序）。"""
+    w = await db.get(InboundWaybill, wid)
+    if not w or w.store_id != store_id:
+        raise HTTPException(status_code=404, detail="运单不存在")
+    ir = await db.execute(
+        select(InboundItem).where(InboundItem.waybill_id == wid).order_by(InboundItem.row_order, InboundItem.id)
+    )
+    items = ir.scalars().all()
+    total_qty = sum(int(i.quantity or 0) for i in items)
+    return {
+        "waybill": _inbound_dict(w, len(items), total_qty),
+        "items": [_inbound_item_dict(i) for i in items],
+    }
+
+
+@router.post("/inbound/{wid}/confirm")
+async def inbound_confirm(
+    wid: int,
+    store_id: int = Query(1),
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """确认到货：将运单状态置为「已完成」。"""
+    w = await db.get(InboundWaybill, wid)
+    if not w or w.store_id != store_id:
+        raise HTTPException(status_code=404, detail="运单不存在")
+    w.status = "已完成"
+    w.completed_at = datetime.utcnow()
+    await db.commit()
+    return {"status": "success"}
+
+
+@router.get("/inbound/{wid}/download")
+async def inbound_download(
+    wid: int,
+    store_id: int = Query(1),
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """下载该运单上传时的原始文件（原封不动）。"""
+    w = await db.get(InboundWaybill, wid)
+    if not w or w.store_id != store_id:
+        raise HTTPException(status_code=404, detail="运单不存在")
+    if not w.file_path or not os.path.exists(w.file_path):
+        raise HTTPException(status_code=404, detail="原始文件已不存在")
+    return FileResponse(
+        w.file_path,
+        filename=w.filename or "装箱模板.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )

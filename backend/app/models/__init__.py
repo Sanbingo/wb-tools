@@ -212,3 +212,37 @@ class BoxItem(Base):
     product_model = Column(String(200))                     # 产品型号
     quantity = Column(Integer, default=0)                   # 初始库存
     created_at = Column(DateTime, default=_now)
+
+
+class InboundWaybill(Base):
+    """在库库存：一个上传的装箱模板文件对应一条在途运单（含数据汇总 + 原始文件）。"""
+    __tablename__ = "inbound_waybills"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    store_id = Column(Integer, index=True, nullable=False, default=1)   # 所属店铺
+    waybill_no = Column(String(100), index=True)            # 运单号
+    ship_date = Column(String(30))                          # 日期（原始文本，如 2026.09.30）
+    weight = Column(String(50))                             # 重量（原始文本，如 120KG）
+    pieces = Column(String(30))                             # 件数（原始文本，如 15）
+    volume = Column(String(30))                             # 方数 m³（原始文本，如 2.3）
+    provider = Column(String(100))                          # 服务商
+    status = Column(String(20), default="运输中")           # 运单状态：运输中 / 已完成
+    filename = Column(String(255))                          # 原始文件名
+    file_path = Column(String(500))                         # 原始文件磁盘路径（原封不动供下载）
+    created_at = Column(DateTime, default=_now, index=True)
+    completed_at = Column(DateTime)                         # 确认到货时间
+
+
+class InboundItem(Base):
+    """在库库存明细：某运单下的单个产品行（箱唛 / 品名 / 条形码 / 尺码 / 数量）。"""
+    __tablename__ = "inbound_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    waybill_id = Column(Integer, ForeignKey("inbound_waybills.id"), index=True, nullable=False)
+    box_code = Column(String(200))                          # 箱唛（解析后已填充沿用值）
+    product_name = Column(String(200))                      # 品名
+    barcode = Column(String(200))                           # 条形码
+    size = Column(String(50))                               # 尺码
+    quantity = Column(Integer, default=0)                   # 数量
+    row_order = Column(Integer, default=0)                  # 原始行顺序（保留展示顺序）
+    created_at = Column(DateTime, default=_now)

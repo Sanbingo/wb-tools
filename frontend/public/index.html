@@ -105,6 +105,13 @@
     .style-models { display: flex; flex-wrap: wrap; gap: 6px 8px; }
     .style-chip { font-size: 12px; background: #f0f4fa; border-radius: 6px; padding: 2px 8px; font-family: monospace; color: #555; }
     .style-chip-qty { color: #cf1322; font-weight: 700; }
+    /* 在库库存：运单状态标签 */
+    .inbound-status { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .inbound-status.transit { background: #e6f4ff; color: #0958d9; }
+    .inbound-status.done { background: #f6ffed; color: #389e0d; }
+    .inbound-act-btn { display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; background: transparent; cursor: pointer; padding: 5px; border-radius: 7px; vertical-align: middle; transition: background .15s, border-color .15s; }
+    .inbound-act-btn:hover { background: #f0f4fa; border-color: #dbe4f0; }
+    .inbound-act-btn + .inbound-act-btn { margin-left: 6px; }
     .inv-qty-wrap { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
     .inv-qty-wrap .inv-qty-input { width: 84px; flex: 0 0 auto; }
     .inv-zero-tag { color: #cf1322; font-weight: 700; font-size: 12px; white-space: nowrap; flex: 0 0 auto; }
@@ -159,7 +166,7 @@ function authFetch(url, opts) {
   var t = getToken();
   if (t) opts.headers['Authorization'] = 'Bearer ' + t;
   // 自动为库存/箱子相关接口追加 store_id（后端 Query 参数，默认 1）
-  if (typeof url === 'string' && (url.indexOf(API+'/inventory') === 0 || url.indexOf(API+'/boxes') === 0)) {
+  if (typeof url === 'string' && (url.indexOf(API+'/inventory') === 0 || url.indexOf(API+'/boxes') === 0 || url.indexOf(API+'/inbound') === 0)) {
     if (url.indexOf('store_id=') === -1) {
       var sep = url.indexOf('?') === -1 ? '?' : '&';
       url = url + sep + 'store_id=' + encodeURIComponent(currentStoreId());
@@ -1205,6 +1212,255 @@ function BoxTab(props) {
   );
 }
 
+// ── 在库库存（在途运单）──
+var IB_T = {
+  zh: {
+    title: '🚚 在库库存', sub: '上传装箱模板生成在途运单；确认到货或下载原始文件',
+    uploadBtn: '📤 上传装箱文件', uploading: '上传中...',
+    uploadOk: function(n){ return '✅ 已导入 '+n+' 条明细'; },
+    uploadErr: '上传失败，请检查模板格式', loadErr: '加载失败', detailErr: '加载明细失败', opErr: '操作失败', dlErr: '下载失败',
+    noData: '暂无在途运单，点击右上角「上传装箱文件」',
+    colDate: '日期', colWaybill: '运单号', colWeight: '重量', colPieces: '件数', colVolume: '方数',
+    colProvider: '服务商', colItems: '明细', colStatus: '运单状态', colUploaded: '上传时间', colAction: '操作',
+    itemsUnit: function(n, q){ return n+' 行 · 共 '+q; },
+    statusTransit: '运输中', statusDone: '已完成',
+    confirmBtn: '✅ 确认到货', downloadBtn: '⬇ 下载', confirmOk: '✅ 已确认到货',
+    confirmHint: '确认到货', downloadHint: '下载原始文件',
+    confirmDialogTitle: '确认到货',
+    confirmDialogMsg: function(no){ return '确定运单 '+(no||'')+' 已到货吗？确认后运单状态将变为「已完成」，不可撤销。'; },
+    confirmYes: '确认到货', confirmCancel: '取消',
+    detailTitle: function(no){ return '运单 '+(no||'')+' · 明细'; },
+    boxSubtotal: function(n){ return '小计 '+n; }, totalQty: function(n){ return '总数量 '+n; },
+    thName: '品名', thBarcode: '条形码', thSize: '尺码', thQty: '数量', closeBtn: '关闭', loading: '加载中...'
+  },
+  ru: {
+    title: '🚚 Склад в пути', sub: 'Загрузите упаковочный шаблон — накладная в пути; подтвердите прибытие или скачайте исходный файл',
+    uploadBtn: '📤 Загрузить файл', uploading: 'Загрузка...',
+    uploadOk: function(n){ return '✅ Импортировано строк: '+n; },
+    uploadErr: 'Ошибка загрузки, проверьте формат шаблона', loadErr: 'Ошибка загрузки', detailErr: 'Ошибка загрузки состава', opErr: 'Ошибка операции', dlErr: 'Ошибка скачивания',
+    noData: 'Накладных в пути нет — загрузите файл справа сверху',
+    colDate: 'Дата', colWaybill: '№ накладной', colWeight: 'Вес', colPieces: 'Мест', colVolume: 'Объём',
+    colProvider: 'Перевозчик', colItems: 'Состав', colStatus: 'Статус', colUploaded: 'Загружено', colAction: 'Действие',
+    itemsUnit: function(n, q){ return n+' строк · всего '+q; },
+    statusTransit: 'В пути', statusDone: 'Завершено',
+    confirmBtn: '✅ Подтвердить прибытие', downloadBtn: '⬇ Скачать', confirmOk: '✅ Прибытие подтверждено',
+    confirmHint: 'Подтвердить прибытие', downloadHint: 'Скачать исходный файл',
+    confirmDialogTitle: 'Подтвердить прибытие',
+    confirmDialogMsg: function(no){ return 'Подтвердить прибытие накладной '+(no||'')+'? После подтверждения статус станет «Завершено» без возможности отмены.'; },
+    confirmYes: 'Подтвердить', confirmCancel: 'Отмена',
+    detailTitle: function(no){ return 'Накладная '+(no||'')+' · состав'; },
+    boxSubtotal: function(n){ return 'Подытог '+n; }, totalQty: function(n){ return 'Всего '+n; },
+    thName: 'Наименование', thBarcode: 'Штрихкод', thSize: 'Размер', thQty: 'Кол-во', closeBtn: 'Закрыть', loading: 'Загрузка...'
+  }
+};
+
+function InboundTab(props) {
+  var LG = useState(localStorage.getItem('wb_inv_lang') || 'zh'), lang = LG[0], setLang = LG[1];
+  function setL(l){ setLang(l); try { localStorage.setItem('wb_inv_lang', l); } catch(e){} }
+  var T = IB_T[lang] || IB_T.zh;
+
+  var S1 = useState([]), waybills = S1[0], setWaybills = S1[1];
+  var S2 = useState(true), loading = S2[0], setLoading = S2[1];
+  var S3 = useState(''), err = S3[0], setErr = S3[1];
+  var S4 = useState(''), okMsg = S4[0], setOkMsg = S4[1];
+  var S5 = useState(false), uploading = S5[0], setUploading = S5[1];
+  var S6 = useState(null), detail = S6[0], setDetail = S6[1];   // {waybill, items}
+  var S7 = useState(null), busyId = S7[0], setBusyId = S7[1];
+  var S8 = useState(null), confirmTarget = S8[0], setConfirmTarget = S8[1];   // 待确认到货的运单
+  var S9 = useState(false), confirming = S9[0], setConfirming = S9[1];
+  var fileRef = useRef(null);
+
+  function load() {
+    setLoading(true); setErr('');
+    authFetch(API+'/inbound/list').then(function(r){return r.json();}).then(function(d){
+      if (d && d.waybills) setWaybills(d.waybills); setLoading(false);
+    }).catch(function(){ setErr(T.loadErr); setLoading(false); });
+  }
+  useEffect(function(){ load(); }, []);
+
+  function onFile(e) {
+    var f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    if (!f.name.match(/\.(xlsx|xls)$/i)) { setErr(T.uploadErr); return; }
+    setUploading(true); setErr(''); setOkMsg('');
+    var fd = new FormData(); fd.append('file', f);
+    authFetch(API+'/inbound/upload', {method:'POST', body:fd})
+      .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
+      .then(function(r){
+        if (r.status === 200 && r.data && r.data.status === 'success') { setOkMsg(T.uploadOk(r.data.items)); load(); }
+        else { setErr((r.data && r.data.detail) || T.uploadErr); }
+        setUploading(false);
+      }).catch(function(){ setErr(T.uploadErr); setUploading(false); });
+  }
+
+  function openDetail(w) {
+    authFetch(API+'/inbound/'+w.id).then(function(r){return r.json();}).then(function(d){
+      if (d && d.waybill) setDetail(d);
+    }).catch(function(){ setErr(T.detailErr); });
+  }
+
+  function askConfirmArrival(w) {
+    setErr(''); setConfirmTarget(w);   // 打开二次确认弹窗
+  }
+
+  function doConfirmArrival() {
+    if (!confirmTarget) return;
+    var w = confirmTarget;
+    setConfirming(true);
+    authFetch(API+'/inbound/'+w.id+'/confirm', {method:'POST'}).then(function(r){return r.json();}).then(function(){
+      setConfirming(false); setConfirmTarget(null); setOkMsg(T.confirmOk); load();
+    }).catch(function(){ setConfirming(false); setErr(T.opErr); });
+  }
+
+  function downloadFile(w) {
+    authFetch(API+'/inbound/'+w.id+'/download').then(function(r){ if(!r.ok) throw new Error('fail'); return r.blob(); }).then(function(blob){
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = w.filename || ('运单_'+(w.waybill_no||w.id)+'.xlsx');
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+    }).catch(function(){ setErr(T.dlErr); });
+  }
+
+  function groupByBox(items) {
+    var map = {}, order = [];
+    (items||[]).forEach(function(it){
+      var k = it.box_code || '';
+      if (!(k in map)) { map[k] = {box: k, items: [], total: 0}; order.push(k); }
+      map[k].items.push(it); map[k].total += (parseInt(it.quantity||0,10)||0);
+    });
+    return order.map(function(k){ return map[k]; });
+  }
+  function sumItem(label, val){ var s=(val===''||val==null)?'—':String(val); return h('span',null,(label?label+'：':'')+s); }
+
+  // 操作图标（内联 SVG，跨设备清晰）
+  function iconCheck(){
+    return h('svg',{width:16,height:16,viewBox:'0 0 24 24',fill:'none',stroke:'#389e0d',strokeWidth:2.6,strokeLinecap:'round',strokeLinejoin:'round',style:{display:'block'}},
+      h('polyline',{points:'20 6 9 17 4 12'}));
+  }
+  function iconDownload(){
+    return h('svg',{width:16,height:16,viewBox:'0 0 24 24',fill:'none',stroke:'#1677ff',strokeWidth:2.2,strokeLinecap:'round',strokeLinejoin:'round',style:{display:'block'}},
+      h('path',{d:'M12 3v12'}), h('polyline',{points:'7 10 12 15 17 10'}), h('line',{x1:5,y1:21,x2:19,y2:21}));
+  }
+
+  return h('div',null,
+    h('div',{style:{display:'flex',justifyContent:'flex-end',alignItems:'center',gap:6,marginBottom:12}},
+      h('span',{style:{fontSize:13,color:'#999'}},'🌐'),
+      ['zh','ru'].map(function(L){
+        return h('button',{key:L,className:'btn '+(lang===L?'btn-primary':'btn-ghost'),style:{padding:'4px 14px',fontSize:13},
+          onClick:function(){ setL(L); }}, L==='zh' ? '中文' : 'Русский');
+      })
+    ),
+    h('div',{className:'card'},
+      h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10,marginBottom:14}},
+        h('div',{style:{display:'flex',alignItems:'baseline',gap:8,flexWrap:'wrap'}},
+          h('div',{className:'card-title',style:{marginBottom:0}},T.title),
+          h('span',{style:{fontSize:12,color:'#999'}},T.sub)
+        ),
+        h('div',{style:{display:'flex',alignItems:'center',gap:10}},
+          okMsg ? h('span',{style:{fontSize:13,color:'#52c41a',fontWeight:600}},okMsg) : null,
+          h('button',{className:'btn btn-primary',style:{padding:'8px 16px',fontSize:14},disabled:uploading,
+            onClick:function(){ setErr(''); setOkMsg(''); fileRef.current && fileRef.current.click(); }}, uploading ? T.uploading : T.uploadBtn),
+          h('input',{type:'file',ref:fileRef,accept:'.xlsx,.xls',style:{display:'none'},onChange:onFile})
+        )
+      ),
+      err ? h('div',{style:{color:'#ff4d4f',fontSize:13,fontWeight:600,marginBottom:10}},err) : null,
+      loading
+        ? h('div',{style:{color:'#999',padding:'20px',textAlign:'center'}}, T.loading)
+        : waybills.length === 0
+          ? h('div',{style:{color:'#999',fontSize:14,padding:'24px 0',textAlign:'center'}},T.noData)
+          : h('table',{className:'inv-table'},
+              h('thead',null,
+                h('tr',null,
+                  h('th',{className:'inv-th'},T.colDate),
+                  h('th',{className:'inv-th'},T.colWaybill),
+                  h('th',{className:'inv-th'},T.colWeight),
+                  h('th',{className:'inv-th'},T.colPieces),
+                  h('th',{className:'inv-th'},T.colVolume),
+                  h('th',{className:'inv-th'},T.colProvider),
+                  h('th',{className:'inv-th'},T.colStatus),
+                  h('th',{className:'inv-th'},T.colUploaded),
+                  h('th',{className:'inv-th',style:{width:96,textAlign:'right'}},T.colAction)
+                )
+              ),
+              h('tbody',null,
+                waybills.map(function(w){
+                  var done = w.status === '已完成';
+                  return h('tr',{key:w.id,style:{cursor:'pointer'},title:T.detailTitle(w.waybill_no||''),onClick:function(){ openDetail(w); }},
+                    h('td',null, w.ship_date || '—'),
+                    h('td',{style:{fontFamily:'monospace',fontWeight:600,color:'#1677ff'}}, w.waybill_no || '—'),
+                    h('td',null, w.weight || '—'),
+                    h('td',null, w.pieces || '—'),
+                    h('td',null, w.volume || '—'),
+                    h('td',null, w.provider || '—'),
+                    h('td',null, h('span',{className:'inbound-status '+(done?'done':'transit')}, done ? T.statusDone : T.statusTransit)),
+                    h('td',{style:{color:'#999',fontSize:12}}, w.created_at || ''),
+                    h('td',{style:{textAlign:'right',whiteSpace:'nowrap'}},
+                      done ? null : h('button',{className:'inbound-act-btn confirm',title:T.confirmHint,
+                        onClick:function(e){ e.stopPropagation(); askConfirmArrival(w); }}, iconCheck()),
+                      h('button',{className:'inbound-act-btn download',title:T.downloadHint,
+                        onClick:function(e){ e.stopPropagation(); downloadFile(w); }}, iconDownload())
+                    )
+                  );
+                })
+              )
+            )
+    ),
+    // 确认到货二次确认弹窗
+    confirmTarget ? h('div',{className:'modal-overlay',onClick:function(){ if(!confirming) setConfirmTarget(null); }},
+      h('div',{className:'modal-box',style:{width:'440px',maxWidth:'92vw'},onClick:function(e){ e.stopPropagation(); }},
+        h('div',{className:'modal-title'}, T.confirmDialogTitle),
+        h('div',{style:{fontSize:14,color:'#555',lineHeight:1.7}}, T.confirmDialogMsg(confirmTarget.waybill_no || '')),
+        h('div',{className:'modal-actions'},
+          h('button',{className:'btn btn-ghost',disabled:confirming,onClick:function(){ if(!confirming) setConfirmTarget(null); }}, T.confirmCancel),
+          h('button',{className:'btn btn-primary',disabled:confirming,onClick:doConfirmArrival}, confirming ? '…' : T.confirmYes)
+        )
+      )
+    ) : null,
+    // 明细弹窗
+    detail ? (function(){
+      var wb = detail.waybill, groups = groupByBox(detail.items);
+      return h('div',{className:'modal-overlay',onClick:function(){ setDetail(null); }},
+        h('div',{className:'modal-box',style:{width:'720px',maxWidth:'94vw',maxHeight:'84vh',overflowY:'auto'},onClick:function(e){ e.stopPropagation(); }},
+          h('div',{className:'modal-title'}, T.detailTitle(wb.waybill_no||'')),
+          h('div',{style:{display:'flex',flexWrap:'wrap',gap:'8px 24px',fontSize:13,marginBottom:14,color:'#555'}},
+            sumItem(T.colDate, wb.ship_date), sumItem(T.colWeight, wb.weight), sumItem(T.colPieces, wb.pieces),
+            sumItem(T.colVolume, wb.volume), sumItem(T.colProvider, wb.provider),
+            sumItem(T.colStatus, wb.status==='已完成'?T.statusDone:T.statusTransit),
+            sumItem(T.colUploaded, wb.created_at), sumItem('', T.totalQty(wb.total_qty))
+          ),
+          groups.map(function(g){
+            return h('div',{key:g.box,style:{border:'1px solid #eef0f3',borderRadius:8,padding:'10px 12px',marginBottom:12,background:'#fafcff'}},
+              h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:8}},
+                h('span',{style:{fontWeight:700,fontFamily:'monospace',fontSize:14,color:'#333'}}, (g.box||'—').replace(/\n/g,' ')),
+                h('span',{style:{fontSize:13,color:'#cf1322',fontWeight:700}}, T.boxSubtotal(g.total))
+              ),
+              h('table',{className:'inv-table',style:{marginTop:4}},
+                h('thead',null,h('tr',null,
+                  h('th',{className:'inv-th'},T.thName),
+                  h('th',{className:'inv-th'},T.thBarcode),
+                  h('th',{className:'inv-th',style:{width:70}},T.thSize),
+                  h('th',{className:'inv-th',style:{width:80}},T.thQty)
+                )),
+                h('tbody',null, g.items.map(function(it){
+                  return h('tr',{key:it.id},
+                    h('td',null, it.product_name || '—'),
+                    h('td',{style:{fontFamily:'monospace'}}, it.barcode || '—'),
+                    h('td',null, it.size || '—'),
+                    h('td',null, String(it.quantity))
+                  );
+                }))
+              )
+            );
+          }),
+          h('div',{className:'modal-actions'}, h('button',{className:'btn btn-ghost',onClick:function(){ setDetail(null); }}, T.closeBtn))
+        )
+      );
+    })() : null
+  );
+}
+
 var LOG_T = {
   zh: {
     title: '📋 操作日志', sub: '记录每天的发货 / 退货 / 调拨操作，按天统计与查询',
@@ -1453,6 +1709,7 @@ function Page(props) {
   var tabs = [
     {key:'inventory', label:'📦 上架库存'},
     {key:'box', label:'🗃 箱子库存'},
+    {key:'inbound', label:'🚚 在库库存'},
     {key:'logs', label:'📋 操作日志'},
     {key:'manual', label:'📎 手动处理'},
   ];
@@ -1485,6 +1742,8 @@ function Page(props) {
         ? h(InventoryTab,{key:'inv-'+curStore})
         : tab==='box'
         ? h(BoxTab,{key:'box-'+curStore})
+        : tab==='inbound'
+        ? h(InboundTab,{key:'inbound-'+curStore})
         : tab==='logs'
         ? h(LogTab,{key:'logs-'+curStore})
         : h(ManualTab,{key:'manual-'+curStore, er:er,tr:tr,fr:fr,setEr:setEr,setTr:setTr,setFr:setFr})
