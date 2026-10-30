@@ -21,6 +21,11 @@ async def init_db():
     async with engine.begin() as conn:
         from .models import Sale, Order, Stock, DailySummary, SyncLog, User, InventoryItem, InventoryLog, Box, BoxItem, Store, InboundWaybill, InboundItem  # noqa
         await conn.run_sync(Base.metadata.create_all)
+        # 轻量迁移（无迁移框架）：为已存在的表按需补充新增列
+        res = await conn.exec_driver_sql("PRAGMA table_info(inbound_waybills)")
+        _cols = [row[1] for row in res.fetchall()]
+        if _cols and "remark" not in _cols:
+            await conn.exec_driver_sql("ALTER TABLE inbound_waybills ADD COLUMN remark VARCHAR(500)")
 
     # Seed default user
     async with async_session() as session:

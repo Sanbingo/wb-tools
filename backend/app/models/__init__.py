@@ -226,6 +226,7 @@ class InboundWaybill(Base):
     pieces = Column(String(30))                             # 件数（原始文本，如 15）
     volume = Column(String(30))                             # 方数 m³（原始文本，如 2.3）
     provider = Column(String(100))                          # 服务商
+    remark = Column(String(500))                            # 备注（模板「数据汇总」页的备注字段）
     status = Column(String(20), default="运输中")           # 运单状态：运输中 / 已完成
     filename = Column(String(255))                          # 原始文件名
     file_path = Column(String(500))                         # 原始文件磁盘路径（原封不动供下载）

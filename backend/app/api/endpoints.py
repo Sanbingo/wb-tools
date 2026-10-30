@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query, Form, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc, cast, Date
+from sqlalchemy import select, func, desc, cast, Date, delete
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -2311,6 +2311,39 @@ async def export_boxes_style(store_id: int = Query(1), username: str = Depends(g
     )
 
 
+@router.get("/boxes/in-transit")
+async def boxes_in_transit(
+    store_id: int = Query(1),
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """在途库存明细（「运输中」运单）：供「箱子库存」款式看板关联展示「在途」数量。
+
+    关联键：在途明细的 `barcode`（型号码，如 SHLD-15-L）== 箱内 `product_model`。
+    返回当前店铺所有「运输中」运单下的明细行，前端按型号码 / 款式聚合。
+    """
+    rows = await db.execute(
+        select(InboundItem, InboundWaybill)
+        .join(InboundWaybill, InboundItem.waybill_id == InboundWaybill.id)
+        .where(InboundWaybill.store_id == store_id, InboundWaybill.status == "运输中")
+        .order_by(InboundWaybill.id, InboundItem.row_order, InboundItem.id)
+    )
+    items = []
+    for it, w in rows.all():
+        items.append({
+            "model": (it.barcode or "").strip(),      # 型号码，如 SHLD-15-L
+            "box_code": it.box_code or "",
+            "product_name": it.product_name or "",
+            "size": it.size or "",
+            "quantity": int(it.quantity or 0),
+            "waybill_id": w.id,
+            "waybill_no": w.waybill_no or "",
+            "ship_date": w.ship_date or "",
+            "provider": w.provider or "",
+        })
+    return {"items": items}
+
+
 # ── Inventory logs (操作日志：发货 / 退货，按天统计与查询) ──────────────
 
 def _inv_log_dict(l: InventoryLog) -> dict:
@@ -2485,6 +2518,7 @@ def _parse_inbound_workbook(path: str) -> dict:
         "件数": "pieces", "件數": "pieces",
         "方数m³": "volume", "方数": "volume", "方數": "volume", "体积": "volume", "立方": "volume",
         "服务商": "provider", "服務商": "provider", "物流商": "provider",
+        "备注": "remark", "備註": "remark", "備注": "remark", "备注说明": "remark",
     }
     summary = {}
     if summary_ws is not None:
@@ -2567,6 +2601,7 @@ def _inbound_dict(w, item_count=0, total_qty=0) -> dict:
         "pieces": w.pieces or "",
         "volume": w.volume or "",
         "provider": w.provider or "",
+        "remark": w.remark or "",
         "status": w.status or "运输中",
         "filename": w.filename or "",
         "created_at": w.created_at.strftime("%Y-%m-%d %H:%M") if w.created_at else "",
@@ -2621,14 +2656,31 @@ async def inbound_upload(
             pass
         raise HTTPException(status_code=400, detail="未解析到明细数据，请检查模板格式（需含 箱唛/品名/条形码/尺码/数量 表头）")
 
+    # 运单号唯一：同一店铺下运单号重复则拒绝，提示用户自行检查
+    waybill_no = (summary.get("waybill_no") or "").strip()
+    if waybill_no:
+        dup = await db.execute(
+            select(InboundWaybill.id).where(
+                InboundWaybill.store_id == store_id,
+                InboundWaybill.waybill_no == waybill_no,
+            )
+        )
+        if dup.scalar_one_or_none() is not None:
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
+            raise HTTPException(status_code=400, detail=f"运单号「{waybill_no}」已存在，请检查模板（运单号不可重复）后重新上传")
+
     w = InboundWaybill(
         store_id=store_id,
-        waybill_no=summary.get("waybill_no", ""),
+        waybill_no=waybill_no,
         ship_date=summary.get("ship_date", ""),
         weight=summary.get("weight", ""),
         pieces=summary.get("pieces", ""),
         volume=summary.get("volume", ""),
         provider=summary.get("provider", ""),
+        remark=summary.get("remark", ""),
         status="运输中",
         filename=file.filename,
         file_path=file_path,
@@ -2741,3 +2793,26 @@ async def inbound_download(
         filename=w.filename or "装箱模板.xlsx",
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+
+@router.post("/inbound/{wid}/delete")
+async def inbound_delete(
+    wid: int,
+    store_id: int = Query(1),
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """删除在途运单（上传有误时使用）：连带删除明细与已上传的原始文件。"""
+    w = await db.get(InboundWaybill, wid)
+    if not w or w.store_id != store_id:
+        raise HTTPException(status_code=404, detail="运单不存在")
+    file_path = w.file_path
+    await db.execute(delete(InboundItem).where(InboundItem.waybill_id == wid))
+    await db.delete(w)
+    await db.commit()
+    if file_path and os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+        except Exception:
+            pass
+    return {"status": "success"}

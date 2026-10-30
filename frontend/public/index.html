@@ -105,7 +105,16 @@
     .style-models { display: flex; flex-wrap: wrap; gap: 6px 8px; }
     .style-chip { font-size: 12px; background: #f0f4fa; border-radius: 6px; padding: 2px 8px; font-family: monospace; color: #555; }
     .style-chip-qty { color: #cf1322; font-weight: 700; }
-    /* 在库库存：运单状态标签 */
+    .style-chip-transit { color: #0958d9; font-weight: 700; margin-left: 3px; }
+    .style-transit-badge { font-size: 12px; font-weight: 700; color: #0958d9; background: #e6f4ff; border: 1px solid #91caff; border-radius: 10px; padding: 1px 8px; cursor: pointer; white-space: nowrap; }
+    .style-transit-badge:hover { background: #bae0ff; }
+    .transit-item-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; border: 1px solid #eef0f3; border-radius: 8px; padding: 9px 12px; background: #fafcff; cursor: pointer; transition: background .15s, border-color .15s; }
+    .transit-item-row:hover { background: #f0f6ff; border-color: #bae0ff; }
+    .transit-item-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+    .transit-item-meta { font-size: 12px; color: #999; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+    .transit-item-model { font-family: monospace; font-weight: 700; color: #333; font-size: 14px; }
+    .transit-item-qty { color: #0958d9; font-weight: 700; font-size: 15px; white-space: nowrap; }
+    /* 在途库存：运单状态标签 */
     .inbound-status { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: 600; white-space: nowrap; }
     .inbound-status.transit { background: #e6f4ff; color: #0958d9; }
     .inbound-status.done { background: #f6ffed; color: #389e0d; }
@@ -834,6 +843,15 @@ var BOX_T = {
     styleDetailSub: function(total, n){ return '合计库存 '+total+' · 分布在 '+n+' 个箱子'; },
     styleNoBox: '该款式暂无库存箱',
     styleBoxQty: function(n){ return '小计 '+n; },
+    styleTransitBadge: function(n){ return '在途 '+n; },
+    styleChipTransit: function(n){ return '·在途'+n; },
+    transitTip: '点击查看该款式的在途明细',
+    styleTransitDialogTitle: function(k){ return '款式 '+k+' · 在途明细'; },
+    styleTransitDialogSub: function(total, wb){ return '在途合计 '+total+' · '+wb+' 个运单'; },
+    styleTransitEmpty: '该款式暂无在途库存',
+    transitColWaybill: '运单号', transitColModel: '型号', transitColName: '品名', transitColSize: '尺码', transitColQty: '在途数', transitColDate: '日期',
+    transitRowHint: '点击跳转到「在途库存」模块',
+    transitGotoBtn: '前往在途库存 →',
     closeBtn: '关闭',
     editTitle: '编辑箱子', save: '保存', cancel: '取消',
     exportBtn: '📤 导出 Excel', exportErr: '导出失败，请重试',
@@ -861,6 +879,15 @@ var BOX_T = {
     styleDetailSub: function(total, n){ return 'Итого остаток '+total+' · в '+n+' коробах'; },
     styleNoBox: 'Нет коробов с остатком',
     styleBoxQty: function(n){ return 'Подытог '+n; },
+    styleTransitBadge: function(n){ return 'в пути '+n; },
+    styleChipTransit: function(n){ return '·в пути'+n; },
+    transitTip: 'Нажмите, чтобы увидеть состав в пути по фасону',
+    styleTransitDialogTitle: function(k){ return 'Фасон '+k+' · в пути'; },
+    styleTransitDialogSub: function(total, wb){ return 'Всего в пути '+total+' · накладных: '+wb; },
+    styleTransitEmpty: 'По этому фасону нет груза в пути',
+    transitColWaybill: '№', transitColModel: 'Модель', transitColName: 'Наименование', transitColSize: 'Размер', transitColQty: 'В пути', transitColDate: 'Дата',
+    transitRowHint: 'Нажмите, чтобы перейти в «Склад в пути»',
+    transitGotoBtn: 'Перейти к складу в пути →',
     closeBtn: 'Закрыть',
     editTitle: 'Редактировать короб', save: 'Сохранить', cancel: 'Отмена',
     exportBtn: '📤 Экспорт Excel', exportErr: 'Ошибка экспорта, повторите',
@@ -881,10 +908,15 @@ function BoxTab(props) {
   var S7 = useState(false), showAdd = S7[0], setShowAdd = S7[1];
   var S8 = useState(null), editBox = S8[0], setEditBox = S8[1];   // 编辑箱子弹窗 {box, code, remark, err, busy}
   var SD = useState(null), styleDetail = SD[0], setStyleDetail = SD[1];   // 款式存放明细弹窗 {key, total, ...}
+  var ST = useState(null), transitDetail = ST[0], setTransitDetail = ST[1];   // 在途明细弹窗（某款式）
+  var SI = useState([]), inTransit = SI[0], setInTransit = SI[1];   // 运输中运单明细（用于关联在途数量）
 
   function load() {
     authFetch(API+'/boxes').then(function(r){return r.json();}).then(function(d){
       if (d && d.boxes) setBoxes(d.boxes);
+    }).catch(function(){});
+    authFetch(API+'/boxes/in-transit').then(function(r){return r.json();}).then(function(d){
+      if (d && d.items) setInTransit(d.items);
     }).catch(function(){});
   }
   useEffect(function(){ load(); }, []);
@@ -1010,7 +1042,21 @@ function BoxTab(props) {
       gb.total += qty;
     });
   });
-  var styleList = styleOrder.map(function(k){ var g = styleAgg[k]; return {key: k, total: g.total, order: g.order, models: g.models, boxes: g.boxes, boxOrder: g.boxOrder}; });
+  // 关联「运输中」在途库存：按型号码（inbound.barcode == box.product_model）聚合
+  var transitByModel = {}, transitByStyle = {};
+  (inTransit || []).forEach(function(it){
+    var m = (it.model || '').trim();
+    if (!m) return;
+    var q = parseInt(it.quantity || 0, 10) || 0;
+    if (!q) return;
+    transitByModel[m] = (transitByModel[m] || 0) + q;
+    var sk = styleKeyOf(m);
+    transitByStyle[sk] = (transitByStyle[sk] || 0) + q;
+  });
+  function transitItemsOfStyle(key){
+    return (inTransit || []).filter(function(it){ return styleKeyOf((it.model || '').trim()) === key && (parseInt(it.quantity || 0, 10) || 0) > 0; });
+  }
+  var styleList = styleOrder.map(function(k){ var g = styleAgg[k]; return {key: k, total: g.total, order: g.order, models: g.models, boxes: g.boxes, boxOrder: g.boxOrder, transit: transitByStyle[k] || 0}; });
 
   return h('div',null,
     h('div',{style:{display:'flex',justifyContent:'flex-end',alignItems:'center',gap:6,marginBottom:12}},
@@ -1036,7 +1082,10 @@ function BoxTab(props) {
               return h('div',{key:s.key,className:'style-tile',style:{cursor:'pointer'},title:T.styleDetailHint,onClick:function(){ setStyleDetail(s); }},
                 h('div',{className:'style-tile-head'},
                   h('span',{className:'style-name'}, s.key),
-                  h('span',{className:'style-total'}, T.styleTotal(s.total))
+                  h('span',{style:{display:'inline-flex',alignItems:'center',gap:6,flexWrap:'wrap',justifyContent:'flex-end'}},
+                    h('span',{className:'style-total'}, T.styleTotal(s.total)),
+                    s.transit>0 ? h('span',{className:'style-transit-badge',title:T.transitTip,onClick:function(e){ e.stopPropagation(); setTransitDetail(s); }}, T.styleTransitBadge(s.transit)) : null
+                  )
                 ),
                 h('div',{className:'style-models'},
                   s.order.map(function(m){
@@ -1044,9 +1093,11 @@ function BoxTab(props) {
                     if (m.toUpperCase().indexOf(s.key) === 0) sub = m.slice(s.key.length);
                     sub = sub.replace(/^[-_\s]+/, '');
                     if (!sub) sub = m;
+                    var mt = transitByModel[m] || 0;
                     return h('span',{key:m,className:'style-chip'},
                       h('span',null, sub + ' '),
-                      h('span',{className:'style-chip-qty'}, String(s.models[m]))
+                      h('span',{className:'style-chip-qty'}, String(s.models[m])),
+                      mt>0 ? h('span',{className:'style-chip-transit'}, T.styleChipTransit(mt)) : null
                     );
                   })
                 )
@@ -1208,27 +1259,74 @@ function BoxTab(props) {
           )
         )
       );
+    })() : null,
+    // ── 在途明细弹窗（点击看板的「在途」徽标，查看该款式运输中的明细；点击行/按钮跳转「在途库存」模块）──
+    transitDetail ? (function(){
+      var tItems = transitItemsOfStyle(transitDetail.key);
+      var tTotal = tItems.reduce(function(s,it){ return s + (parseInt(it.quantity||0,10)||0); }, 0);
+      // 按运单聚合：一个运单一条（只展示运单号 + 日期 + 该运单该款式的在途数量）
+      var wbGroups = [], wbIndex = {};
+      tItems.forEach(function(it){
+        var wkey = it.waybill_id || it.waybill_no || ('x' + wbGroups.length);
+        var q = parseInt(it.quantity||0,10)||0;
+        if (wbIndex[wkey] === undefined) {
+          wbIndex[wkey] = wbGroups.length;
+          wbGroups.push({ waybill_no: it.waybill_no||'', ship_date: it.ship_date||'', qty: 0 });
+        }
+        wbGroups[wbIndex[wkey]].qty += q;
+      });
+      var wbN = wbGroups.length;
+      function goInbound(){ setTransitDetail(null); if (props && props.onGotoInbound) props.onGotoInbound(); }
+      return h('div',{className:'modal-overlay',onClick:function(){ setTransitDetail(null); }},
+        h('div',{className:'modal-box',style:{width:'520px',maxWidth:'94vw',maxHeight:'82vh',overflowY:'auto'},onClick:function(e){ e.stopPropagation(); }},
+          h('div',{className:'modal-title'}, T.styleTransitDialogTitle(transitDetail.key)),
+          h('div',{style:{fontSize:13,color:'#888',marginBottom:14}},
+            T.styleTransitDialogSub(tTotal, wbN)),
+          wbN === 0
+            ? h('div',{style:{color:'#999',fontSize:14,padding:'16px 0',textAlign:'center'}}, T.styleTransitEmpty)
+            : h('div',{style:{display:'flex',flexDirection:'column',gap:8}},
+                wbGroups.map(function(g, idx){
+                  return h('div',{key:idx,className:'transit-item-row',title:T.transitRowHint,onClick:goInbound},
+                    h('div',{className:'transit-item-main'},
+                      h('div',{className:'transit-item-model'}, g.waybill_no || '—'),
+                      h('div',{className:'transit-item-meta'},
+                        h('span',null, T.transitColDate + ' ' + (g.ship_date || '—'))
+                      )
+                    ),
+                    h('span',{className:'transit-item-qty'}, T.styleTransitBadge(g.qty) + '  →')
+                  );
+                })
+              ),
+          h('div',{className:'modal-actions'},
+            h('button',{className:'btn btn-ghost',onClick:function(){ setTransitDetail(null); }}, T.closeBtn),
+            h('button',{className:'btn btn-primary',onClick:goInbound}, T.transitGotoBtn)
+          )
+        )
+      );
     })() : null
   );
 }
 
-// ── 在库库存（在途运单）──
+// ── 在途库存（在途运单）──
 var IB_T = {
   zh: {
-    title: '🚚 在库库存', sub: '上传装箱模板生成在途运单；确认到货或下载原始文件',
+    title: '🚚 在途库存', sub: '上传装箱模板生成在途运单；确认到货或下载原始文件',
     uploadBtn: '📤 上传装箱文件', uploading: '上传中...',
     uploadOk: function(n){ return '✅ 已导入 '+n+' 条明细'; },
     uploadErr: '上传失败，请检查模板格式', loadErr: '加载失败', detailErr: '加载明细失败', opErr: '操作失败', dlErr: '下载失败',
     noData: '暂无在途运单，点击右上角「上传装箱文件」',
     colDate: '日期', colWaybill: '运单号', colWeight: '重量', colPieces: '件数', colVolume: '方数',
-    colProvider: '服务商', colItems: '明细', colStatus: '运单状态', colUploaded: '上传时间', colAction: '操作',
+    colProvider: '服务商', colItems: '明细', colStatus: '运单状态', colUploaded: '上传时间', colAction: '操作', colRemark: '备注',
     itemsUnit: function(n, q){ return n+' 行 · 共 '+q; },
     statusTransit: '运输中', statusDone: '已完成',
     confirmBtn: '✅ 确认到货', downloadBtn: '⬇ 下载', confirmOk: '✅ 已确认到货',
-    confirmHint: '确认到货', downloadHint: '下载原始文件',
+    confirmHint: '确认到货', downloadHint: '下载原始文件', deleteHint: '删除运单',
     confirmDialogTitle: '确认到货',
     confirmDialogMsg: function(no){ return '确定运单 '+(no||'')+' 已到货吗？确认后运单状态将变为「已完成」，不可撤销。'; },
     confirmYes: '确认到货', confirmCancel: '取消',
+    deleteDialogTitle: '删除运单',
+    deleteDialogMsg: function(no){ return '确定删除运单 '+(no||'')+' 吗？删除后该运单及其明细、原始上传文件都将被移除，不可恢复。'; },
+    deleteYes: '删除', deleteCancel: '取消', deleteOk: '✅ 已删除运单',
     detailTitle: function(no){ return '运单 '+(no||'')+' · 明细'; },
     boxSubtotal: function(n){ return '小计 '+n; }, totalQty: function(n){ return '总数量 '+n; },
     thName: '品名', thBarcode: '条形码', thSize: '尺码', thQty: '数量', closeBtn: '关闭', loading: '加载中...'
@@ -1240,14 +1338,17 @@ var IB_T = {
     uploadErr: 'Ошибка загрузки, проверьте формат шаблона', loadErr: 'Ошибка загрузки', detailErr: 'Ошибка загрузки состава', opErr: 'Ошибка операции', dlErr: 'Ошибка скачивания',
     noData: 'Накладных в пути нет — загрузите файл справа сверху',
     colDate: 'Дата', colWaybill: '№ накладной', colWeight: 'Вес', colPieces: 'Мест', colVolume: 'Объём',
-    colProvider: 'Перевозчик', colItems: 'Состав', colStatus: 'Статус', colUploaded: 'Загружено', colAction: 'Действие',
+    colProvider: 'Перевозчик', colItems: 'Состав', colStatus: 'Статус', colUploaded: 'Загружено', colAction: 'Действие', colRemark: 'Примечание',
     itemsUnit: function(n, q){ return n+' строк · всего '+q; },
     statusTransit: 'В пути', statusDone: 'Завершено',
     confirmBtn: '✅ Подтвердить прибытие', downloadBtn: '⬇ Скачать', confirmOk: '✅ Прибытие подтверждено',
-    confirmHint: 'Подтвердить прибытие', downloadHint: 'Скачать исходный файл',
+    confirmHint: 'Подтвердить прибытие', downloadHint: 'Скачать исходный файл', deleteHint: 'Удалить накладную',
     confirmDialogTitle: 'Подтвердить прибытие',
     confirmDialogMsg: function(no){ return 'Подтвердить прибытие накладной '+(no||'')+'? После подтверждения статус станет «Завершено» без возможности отмены.'; },
     confirmYes: 'Подтвердить', confirmCancel: 'Отмена',
+    deleteDialogTitle: 'Удалить накладную',
+    deleteDialogMsg: function(no){ return 'Удалить накладную '+(no||'')+'? Накладная, её состав и исходный загруженный файл будут удалены без возможности восстановления.'; },
+    deleteYes: 'Удалить', deleteCancel: 'Отмена', deleteOk: '✅ Накладная удалена',
     detailTitle: function(no){ return 'Накладная '+(no||'')+' · состав'; },
     boxSubtotal: function(n){ return 'Подытог '+n; }, totalQty: function(n){ return 'Всего '+n; },
     thName: 'Наименование', thBarcode: 'Штрихкод', thSize: 'Размер', thQty: 'Кол-во', closeBtn: 'Закрыть', loading: 'Загрузка...'
@@ -1268,6 +1369,8 @@ function InboundTab(props) {
   var S7 = useState(null), busyId = S7[0], setBusyId = S7[1];
   var S8 = useState(null), confirmTarget = S8[0], setConfirmTarget = S8[1];   // 待确认到货的运单
   var S9 = useState(false), confirming = S9[0], setConfirming = S9[1];
+  var S10 = useState(null), deleteTarget = S10[0], setDeleteTarget = S10[1];   // 待删除的运单
+  var S11 = useState(false), deleting = S11[0], setDeleting = S11[1];
   var fileRef = useRef(null);
 
   function load() {
@@ -1313,6 +1416,20 @@ function InboundTab(props) {
     }).catch(function(){ setConfirming(false); setErr(T.opErr); });
   }
 
+  function askDelete(w) {
+    setErr(''); setOkMsg(''); setDeleteTarget(w);   // 打开删除确认弹窗
+  }
+
+  function doDelete() {
+    if (!deleteTarget) return;
+    var w = deleteTarget;
+    setDeleting(true);
+    authFetch(API+'/inbound/'+w.id+'/delete', {method:'POST'}).then(function(r){return r.json();}).then(function(d){
+      if (d && d.status === 'success') { setDeleting(false); setDeleteTarget(null); setOkMsg(T.deleteOk); load(); }
+      else { setDeleting(false); setDeleteTarget(null); setErr((d && d.detail) || T.opErr); }
+    }).catch(function(){ setDeleting(false); setErr(T.opErr); });
+  }
+
   function downloadFile(w) {
     authFetch(API+'/inbound/'+w.id+'/download').then(function(r){ if(!r.ok) throw new Error('fail'); return r.blob(); }).then(function(blob){
       var url = URL.createObjectURL(blob);
@@ -1342,6 +1459,13 @@ function InboundTab(props) {
   function iconDownload(){
     return h('svg',{width:16,height:16,viewBox:'0 0 24 24',fill:'none',stroke:'#1677ff',strokeWidth:2.2,strokeLinecap:'round',strokeLinejoin:'round',style:{display:'block'}},
       h('path',{d:'M12 3v12'}), h('polyline',{points:'7 10 12 15 17 10'}), h('line',{x1:5,y1:21,x2:19,y2:21}));
+  }
+  function iconTrash(){
+    return h('svg',{width:16,height:16,viewBox:'0 0 24 24',fill:'none',stroke:'#cf1322',strokeWidth:2.2,strokeLinecap:'round',strokeLinejoin:'round',style:{display:'block'}},
+      h('polyline',{points:'3 6 5 6 21 6'}),
+      h('path',{d:'M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6'}),
+      h('path',{d:'M10 11v6M14 11v6'}),
+      h('path',{d:'M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2'}));
   }
 
   return h('div',null,
@@ -1381,7 +1505,7 @@ function InboundTab(props) {
                   h('th',{className:'inv-th'},T.colProvider),
                   h('th',{className:'inv-th'},T.colStatus),
                   h('th',{className:'inv-th'},T.colUploaded),
-                  h('th',{className:'inv-th',style:{width:96,textAlign:'right'}},T.colAction)
+                  h('th',{className:'inv-th',style:{width:132,textAlign:'right'}},T.colAction)
                 )
               ),
               h('tbody',null,
@@ -1389,7 +1513,10 @@ function InboundTab(props) {
                   var done = w.status === '已完成';
                   return h('tr',{key:w.id,style:{cursor:'pointer'},title:T.detailTitle(w.waybill_no||''),onClick:function(){ openDetail(w); }},
                     h('td',null, w.ship_date || '—'),
-                    h('td',{style:{fontFamily:'monospace',fontWeight:600,color:'#1677ff'}}, w.waybill_no || '—'),
+                    h('td',null,
+                      h('div',{style:{fontFamily:'monospace',fontWeight:600,color:'#1677ff'}}, w.waybill_no || '—'),
+                      (w.remark && String(w.remark).trim()) ? h('div',{style:{fontSize:11,color:'#999',marginTop:2,fontWeight:400,whiteSpace:'normal'}}, '📝 '+w.remark) : null
+                    ),
                     h('td',null, w.weight || '—'),
                     h('td',null, w.pieces || '—'),
                     h('td',null, w.volume || '—'),
@@ -1400,7 +1527,9 @@ function InboundTab(props) {
                       done ? null : h('button',{className:'inbound-act-btn confirm',title:T.confirmHint,
                         onClick:function(e){ e.stopPropagation(); askConfirmArrival(w); }}, iconCheck()),
                       h('button',{className:'inbound-act-btn download',title:T.downloadHint,
-                        onClick:function(e){ e.stopPropagation(); downloadFile(w); }}, iconDownload())
+                        onClick:function(e){ e.stopPropagation(); downloadFile(w); }}, iconDownload()),
+                      h('button',{className:'inbound-act-btn delete',title:T.deleteHint,
+                        onClick:function(e){ e.stopPropagation(); askDelete(w); }}, iconTrash())
                     )
                   );
                 })
@@ -1418,6 +1547,17 @@ function InboundTab(props) {
         )
       )
     ) : null,
+    // 删除运单确认弹窗
+    deleteTarget ? h('div',{className:'modal-overlay',onClick:function(){ if(!deleting) setDeleteTarget(null); }},
+      h('div',{className:'modal-box',style:{width:'440px',maxWidth:'92vw'},onClick:function(e){ e.stopPropagation(); }},
+        h('div',{className:'modal-title',style:{color:'#cf1322'}}, T.deleteDialogTitle),
+        h('div',{style:{fontSize:14,color:'#555',lineHeight:1.7}}, T.deleteDialogMsg(deleteTarget.waybill_no || '')),
+        h('div',{className:'modal-actions'},
+          h('button',{className:'btn btn-ghost',disabled:deleting,onClick:function(){ if(!deleting) setDeleteTarget(null); }}, T.deleteCancel),
+          h('button',{className:'btn btn-primary',style:{background:'#cf1322',borderColor:'#cf1322'},disabled:deleting,onClick:doDelete}, deleting ? '…' : T.deleteYes)
+        )
+      )
+    ) : null,
     // 明细弹窗
     detail ? (function(){
       var wb = detail.waybill, groups = groupByBox(detail.items);
@@ -1427,6 +1567,7 @@ function InboundTab(props) {
           h('div',{style:{display:'flex',flexWrap:'wrap',gap:'8px 24px',fontSize:13,marginBottom:14,color:'#555'}},
             sumItem(T.colDate, wb.ship_date), sumItem(T.colWeight, wb.weight), sumItem(T.colPieces, wb.pieces),
             sumItem(T.colVolume, wb.volume), sumItem(T.colProvider, wb.provider),
+            (wb.remark && String(wb.remark).trim()) ? sumItem(T.colRemark, wb.remark) : null,
             sumItem(T.colStatus, wb.status==='已完成'?T.statusDone:T.statusTransit),
             sumItem(T.colUploaded, wb.created_at), sumItem('', T.totalQty(wb.total_qty))
           ),
@@ -1709,7 +1850,7 @@ function Page(props) {
   var tabs = [
     {key:'inventory', label:'📦 上架库存'},
     {key:'box', label:'🗃 箱子库存'},
-    {key:'inbound', label:'🚚 在库库存'},
+    {key:'inbound', label:'🚚 在途库存'},
     {key:'logs', label:'📋 操作日志'},
     {key:'manual', label:'📎 手动处理'},
   ];
@@ -1741,7 +1882,7 @@ function Page(props) {
       tab==='inventory'
         ? h(InventoryTab,{key:'inv-'+curStore})
         : tab==='box'
-        ? h(BoxTab,{key:'box-'+curStore})
+        ? h(BoxTab,{key:'box-'+curStore, onGotoInbound:function(){ setTab('inbound'); }})
         : tab==='inbound'
         ? h(InboundTab,{key:'inbound-'+curStore})
         : tab==='logs'
