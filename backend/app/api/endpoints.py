@@ -1817,6 +1817,184 @@ async def add_box(req: BoxAddRequest, store_id: int = Query(1), username: str = 
     return {"status": "success", "box": _box_dict(box, await _box_items(db, box.id))}
 
 
+def _parse_box_excel(content: bytes, filename: str) -> dict:
+    """解析「箱子库存上传模版」Excel → {"boxes":[{"box_code","remark","items"}], "file_dup":[codes]}。
+
+    模板列：箱唛编码 / 产品型号 / 初始库存 / 备注（大小写/中英不敏感、顺序任意）。
+    一个 Excel 可含多个箱子：箱唛编码非空 → 新起一箱；为空 → 沿用上一个箱唛。
+    """
+    from openpyxl import load_workbook
+
+    suffix = os.path.splitext(filename or "")[1] or ".xlsx"
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    try:
+        tmp.write(content)
+        tmp.close()
+        wb = load_workbook(tmp.name, data_only=True)
+    except Exception as e:
+        try:
+            os.remove(tmp.name)
+        except Exception:
+            pass
+        raise HTTPException(status_code=400, detail=f"解析失败：{e}")
+
+    def norm(v):
+        if v is None:
+            return ""
+        if isinstance(v, float) and v.is_integer():
+            return str(int(v))
+        return str(v).strip()
+
+    model_keys = ("产品型号", "型号", "品名", "产品名称", "model", "sku")
+    qty_keys = ("初始库存", "数量", "库存", "qty", "quantity")
+    box_keys = ("箱唛编码", "箱唛", "箱嘜", "箱号", "箱碼", "箱码")
+    remark_keys = ("备注", "備註", "備注", "remark")
+
+    def has(v, keys):
+        lv = v.lower()
+        return any(k.lower() in lv for k in keys)
+
+    boxes, by_code, file_dup = [], {}, []
+    parsed_any = False
+    try:
+        for ws in wb.worksheets:
+            rows = list(ws.iter_rows(values_only=True))
+            header_idx, colmap = None, {}
+            for ri, row in enumerate(rows):
+                vals = [norm(x) for x in row]
+                if (any(has(v, box_keys) for v in vals)
+                        and any(has(v, model_keys) for v in vals)
+                        and any(has(v, qty_keys) for v in vals)):
+                    header_idx = ri
+                    for ci, v in enumerate(vals):
+                        if not v:
+                            continue
+                        if "box" not in colmap and has(v, box_keys):
+                            colmap["box"] = ci
+                        elif "model" not in colmap and has(v, model_keys):
+                            colmap["model"] = ci
+                        elif "qty" not in colmap and has(v, qty_keys):
+                            colmap["qty"] = ci
+                        elif "remark" not in colmap and has(v, remark_keys):
+                            colmap["remark"] = ci
+                    break
+            if header_idx is None or not all(k in colmap for k in ("box", "model", "qty")):
+                continue
+
+            def getc(svals, key):
+                ci = colmap.get(key)
+                return svals[ci] if (ci is not None and ci < len(svals)) else ""
+
+            current = None
+            for row in rows[header_idx + 1:]:
+                svals = [norm(x) for x in row]
+                box_v = getc(svals, "box")
+                model_v = getc(svals, "model")
+                qty_raw = getc(svals, "qty")
+                rem_v = getc(svals, "remark")
+                if not any([box_v, model_v, qty_raw, rem_v]):
+                    continue
+                if box_v:
+                    if box_v in by_code:
+                        file_dup.append(box_v)
+                        current = by_code[box_v]
+                    else:
+                        current = {"box_code": box_v, "remark": "", "items": []}
+                        by_code[box_v] = current
+                        boxes.append(current)
+                if current is None:
+                    continue
+                if not current["remark"] and rem_v:
+                    current["remark"] = rem_v
+                if not model_v:
+                    continue
+                try:
+                    q = int(float(str(qty_raw).replace(",", "").strip())) if str(qty_raw).strip() != "" else 0
+                except Exception:
+                    q = 0
+                current["items"].append({"product_model": model_v, "quantity": q})
+            if boxes:
+                parsed_any = True
+                break  # 使用第一个含数据的表
+    finally:
+        try:
+            os.remove(tmp.name)
+        except Exception:
+            pass
+
+    boxes = [b for b in boxes if b["items"]]
+    for b in boxes:
+        if not (b.get("remark") or "").strip():
+            b["remark"] = "🔴未拆封"
+    if not parsed_any or not boxes:
+        raise HTTPException(status_code=400, detail="未解析到箱子数据，请检查 Excel 表头是否含「箱唛编码」「产品型号」「初始库存」列")
+    return {"boxes": boxes, "file_dup": sorted(set(file_dup))}
+
+
+@router.post("/boxes/preview-excel")
+async def boxes_preview_excel(
+    file: UploadFile = File(...),
+    store_id: int = Query(1),
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """预览导入：解析箱子上传 Excel（不创建），返回箱子清单 + 箱唛重复冲突，供前端弹窗确认。"""
+    if not (file.filename or "").lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(status_code=400, detail="仅支持 .xlsx / .xls 文件")
+    content = await file.read()
+    parsed = _parse_box_excel(content, file.filename)
+    boxes, file_dup = parsed["boxes"], parsed["file_dup"]
+    codes = [b["box_code"] for b in boxes]
+    ex = await db.execute(select(Box.box_code).where(Box.store_id == store_id, Box.box_code.in_(codes)))
+    existing = sorted(set(ex.scalars().all()))
+    out = [{
+        "box_code": b["box_code"],
+        "remark": b["remark"],
+        "item_count": len(b["items"]),
+        "total_qty": sum(int(i["quantity"] or 0) for i in b["items"]),
+        "items": b["items"],
+    } for b in boxes]
+    return {"boxes": out, "file_dup": file_dup, "existing": existing, "has_conflict": bool(file_dup or existing)}
+
+
+@router.post("/boxes/import-excel")
+async def boxes_import_excel(
+    file: UploadFile = File(...),
+    store_id: int = Query(1),
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """确认后导入：解析并直接创建箱子（一步到位）。箱唛编码不可重复（文件内 / 店铺内）→ 整份失败。"""
+    if not (file.filename or "").lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(status_code=400, detail="仅支持 .xlsx / .xls 文件")
+    content = await file.read()
+    parsed = _parse_box_excel(content, file.filename)
+    boxes, file_dup = parsed["boxes"], parsed["file_dup"]
+
+    if file_dup:
+        raise HTTPException(status_code=400, detail=f"箱唛编码在文件中重复：{'、'.join(file_dup)}，请检查后再上传")
+
+    codes = [b["box_code"] for b in boxes]
+    ex = await db.execute(select(Box.box_code).where(Box.store_id == store_id, Box.box_code.in_(codes)))
+    existing = sorted(set(ex.scalars().all()))
+    if existing:
+        raise HTTPException(status_code=400, detail=f"箱唛编码已存在：{'、'.join(existing)}，不能重复，请检查后再上传")
+
+    created = []
+    for b in boxes:
+        box = Box(box_code=b["box_code"], remark=(b["remark"] or "").strip(), store_id=store_id)
+        db.add(box)
+        await db.flush()
+        for it in b["items"]:
+            model = (it["product_model"] or "").strip()
+            if not model:
+                continue
+            db.add(BoxItem(box_id=box.id, product_model=model, quantity=int(it["quantity"] or 0)))
+        created.append(b["box_code"])
+    await db.commit()
+    return {"status": "success", "created": len(created), "box_codes": created}
+
+
 @router.post("/boxes/{box_id}/items/{item_id}/quantity")
 async def set_box_item_quantity(box_id: int, item_id: int, req: BoxQuantityRequest, store_id: int = Query(1),
                                 username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):

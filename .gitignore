@@ -29,3 +29,6 @@ Thumbs.db
 *.log
 # DB backups (local only)
 backups/
+
+# user uploaded data
+backend/uploads/

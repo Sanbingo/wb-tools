@@ -826,6 +826,16 @@ var BOX_T = {
     boxCode: '箱唛编码', phBoxCode: '请输入箱唛编码', remark: '备注', phRemark: '选填',
     model: '产品型号', phModel: '请输入产品型号', initQty: '初始库存',
     addRowBtn: '＋ 添加一行', delRow: '删除该行', submitBtn: '提交',
+    importExcelBtn: '📄 导入Excel', importExcelParsing: '导入中…',
+    importOk: function(n){ return '✅ 已导入 '+n+' 个箱子'; },
+    importHint: 'Excel 含「箱唛编码」「产品型号」「初始库存」列；箱唛编码不可重复',
+    importErr: '导入失败，请检查 Excel（需含 箱唛编码 / 产品型号 / 初始库存 列）',
+    previewTitle: function(n){ return '确认导入箱子（'+n+' 个）'; },
+    previewSub: function(n){ return '将创建 '+n+' 个箱子，确认后直接导入'; },
+    previewBoxMeta: function(c, q){ return c+' 个型号 · 共 '+q; },
+    previewFileDup: function(c){ return '⚠️ 文件内箱唛重复：'+c; },
+    previewExisted: function(c){ return '⚠️ 箱唛已存在：'+c+'（不可重复）'; },
+    previewConfirm: '确认导入', previewCancel: '取消',
     needCode: '请填写箱唛编码', needModel: '请至少填写一个产品型号',
     addOk: function(c){ return '✅ 已添加箱子 '+c; },
     listTitle: '📦 箱子列表', noData: '暂无箱子，点击上方「添加箱子」录入',
@@ -862,6 +872,16 @@ var BOX_T = {
     boxCode: 'Код короба', phBoxCode: 'Введите код короба', remark: 'Примечание', phRemark: 'необязательно',
     model: 'Модель товара', phModel: 'Введите модель', initQty: 'Начальный остаток',
     addRowBtn: '＋ Добавить строку', delRow: 'Удалить строку', submitBtn: 'Отправить',
+    importExcelBtn: '📄 Импорт Excel', importExcelParsing: 'Импорт…',
+    importOk: function(n){ return '✅ Импортировано коробов: '+n; },
+    importHint: 'Колонки «Код короба», «Модель», «Остаток»; код короба не должен повторяться',
+    importErr: 'Ошибка импорта, проверьте Excel (колонки Код короба / Модель / Остаток)',
+    previewTitle: function(n){ return 'Подтвердить импорт коробов ('+n+')'; },
+    previewSub: function(n){ return 'Будет создано коробов: '+n+'; подтвердите для импорта'; },
+    previewBoxMeta: function(c, q){ return c+' моделей · всего '+q; },
+    previewFileDup: function(c){ return '⚠️ Код короба повторяется в файле: '+c; },
+    previewExisted: function(c){ return '⚠️ Код короба уже существует: '+c+' (не должен повторяться)'; },
+    previewConfirm: 'Импортировать', previewCancel: 'Отмена',
     needCode: 'Укажите код короба', needModel: 'Укажите хотя бы одну модель',
     addOk: function(c){ return '✅ Короб добавлен: '+c; },
     listTitle: '📦 Список коробов', noData: 'Пока нет коробов — добавьте через форму выше',
@@ -901,7 +921,7 @@ function BoxTab(props) {
   var T = BOX_T[lang] || BOX_T.zh;
   var S1 = useState([]), boxes = S1[0], setBoxes = S1[1];
   var S2 = useState(''), bc = S2[0], setBc = S2[1];
-  var S3 = useState(''), brm = S3[0], setBrm = S3[1];
+  var S3 = useState('🔴未拆封'), brm = S3[0], setBrm = S3[1];
   var S4 = useState([{id:'r0', model:'', qty:''}]), rows = S4[0], setRows = S4[1];
   var S5 = useState(''), addErr = S5[0], setAddErr = S5[1];
   var S6 = useState(''), addOk = S6[0], setAddOk = S6[1];
@@ -910,6 +930,10 @@ function BoxTab(props) {
   var SD = useState(null), styleDetail = SD[0], setStyleDetail = SD[1];   // 款式存放明细弹窗 {key, total, ...}
   var ST = useState(null), transitDetail = ST[0], setTransitDetail = ST[1];   // 在途明细弹窗（某款式）
   var SI = useState([]), inTransit = SI[0], setInTransit = SI[1];   // 运输中运单明细（用于关联在途数量）
+  var SIM = useState(false), importing = SIM[0], setImporting = SIM[1];   // 导入 Excel 解析中
+  var excelRef = useRef(null);
+  var SPV = useState(null), previewData = SPV[0], setPreviewData = SPV[1];   // 导入预览 {boxes, file_dup, existing, has_conflict}
+  var pendingFileRef = useRef(null);   // 待确认导入的 Excel 文件
 
   function load() {
     authFetch(API+'/boxes').then(function(r){return r.json();}).then(function(d){
@@ -969,12 +993,51 @@ function BoxTab(props) {
       .then(function(r){
         if (r.status !== 200) { setAddErr(r.data.detail || T.failed); return; }
         setAddOk(T.addOk(r.data.box.box_code));
-        setBc(''); setBrm(''); setRows([newRow()]);
+        setBc(''); setBrm('🔴未拆封'); setRows([newRow()]);
         setShowAdd(false);
         load();
       })
       .catch(function(){ setAddErr(T.netErr); });
   }
+
+  // 导入 Excel（第一步）：上传解析 → 弹窗预览，用户确认后才真正导入
+  function onExcelImport(e) {
+    var f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    if (!f.name.match(/\.(xlsx|xls)$/i)) { setAddErr(T.importErr); return; }
+    setAddErr(''); setAddOk(''); setImporting(true);
+    pendingFileRef.current = f;
+    var fd = new FormData(); fd.append('file', f);
+    authFetch(API+'/boxes/preview-excel', {method:'POST', body:fd})
+      .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
+      .then(function(r){
+        setImporting(false);
+        if (r.status !== 200) { pendingFileRef.current = null; setAddErr((r.data && r.data.detail) || T.importErr); return; }
+        setPreviewData(r.data);   // 打开预览弹窗
+      })
+      .catch(function(){ setImporting(false); pendingFileRef.current = null; setAddErr(T.importErr); });
+  }
+
+  // 导入 Excel（第二步）：用户确认后真正创建
+  function doImportConfirmed() {
+    if (!pendingFileRef.current) { setPreviewData(null); return; }
+    setImporting(true);
+    var fd = new FormData(); fd.append('file', pendingFileRef.current);
+    authFetch(API+'/boxes/import-excel', {method:'POST', body:fd})
+      .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
+      .then(function(r){
+        setImporting(false);
+        if (r.status !== 200) { setAddErr((r.data && r.data.detail) || T.importErr); setPreviewData(null); pendingFileRef.current = null; return; }
+        var n = (r.data && r.data.created) || 0;
+        setPreviewData(null); pendingFileRef.current = null;
+        setAddOk(T.importOk(n));
+        load();
+      })
+      .catch(function(){ setImporting(false); setAddErr(T.importErr); });
+  }
+
+  function cancelImport() { setPreviewData(null); pendingFileRef.current = null; }
 
   function saveQty(b, it, val) {
     var v = parseInt(val, 10); if (isNaN(v) || v < 0) v = 0;
@@ -1112,9 +1175,14 @@ function BoxTab(props) {
       h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8,marginBottom:12}},
         h('div',{className:'card-title',style:{marginBottom:0}},T.listTitle),
         h('div',{style:{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
+          addErr ? h('span',{style:{fontSize:13,color:'#ff4d4f',fontWeight:600,maxWidth:300}},addErr) : null,
           addOk ? h('span',{style:{fontSize:13,color:'#52c41a',fontWeight:600}},addOk) : null,
-          h('button',{className:'btn btn-primary',style:{padding:'6px 14px',fontSize:13},onClick:function(){ setAddErr(''); setAddOk(''); setShowAdd(true); }},T.addBoxBtn),
-          boxes.length>0 ? h('button',{className:'btn btn-success',style:{padding:'6px 14px',fontSize:13},onClick:exportBoxes},T.exportBtn) : null
+          h('button',{className:'btn btn-ghost',style:{padding:'6px 14px',fontSize:13},title:T.importHint,disabled:importing,
+            onClick:function(){ setAddErr(''); setAddOk(''); excelRef.current && excelRef.current.click(); }},
+            importing ? T.importExcelParsing : T.importExcelBtn),
+          h('button',{className:'btn btn-primary',style:{padding:'6px 14px',fontSize:13},onClick:function(){ setAddErr(''); setAddOk(''); setBrm('🔴未拆封'); setShowAdd(true); }},T.addBoxBtn),
+          boxes.length>0 ? h('button',{className:'btn btn-success',style:{padding:'6px 14px',fontSize:13},onClick:exportBoxes},T.exportBtn) : null,
+          h('input',{type:'file',ref:excelRef,accept:'.xlsx,.xls',style:{display:'none'},onChange:onExcelImport})
         )
       ),
       boxes.length===0
@@ -1187,13 +1255,55 @@ function BoxTab(props) {
           }),
           h('button',{className:'btn btn-ghost',style:{marginTop:8,fontSize:13},onClick:addRow},T.addRowBtn)
         ),
-        addErr ? h('div',{style:{color:'#ff4d4f',fontSize:13,marginTop:10,fontWeight:600}},addErr) : null,
+        addErr ? h('div',{style:{color:'#ff4d4f',fontSize:13,marginTop:10,fontWeight:600}},addErr) : (addOk ? h('div',{style:{color:'#52c41a',fontSize:13,marginTop:10,fontWeight:600}},addOk) : null),
         h('div',{className:'modal-actions'},
           h('button',{className:'btn btn-ghost',onClick:function(){ setShowAdd(false); }},T.cancel),
           h('button',{className:'btn btn-primary',onClick:submitBox},T.submitBtn)
         )
       )
     ) : null,
+    // ── 导入预览弹窗（上传 Excel 后先展示，确认再导入）──
+    previewData ? (function(){
+      var bx = previewData.boxes || [];
+      var fileDup = previewData.file_dup || [];
+      var existedCodes = previewData.existing || [];
+      var conflict = !!previewData.has_conflict;
+      return h('div',{className:'modal-overlay',onClick:function(){ if(!importing) cancelImport(); }},
+        h('div',{className:'modal-box',style:{width:'640px',maxWidth:'94vw',maxHeight:'84vh',overflowY:'auto'},onClick:function(e){ e.stopPropagation(); }},
+          h('div',{className:'modal-title'}, T.previewTitle(bx.length)),
+          conflict
+            ? h('div',{style:{background:'#fff1f0',border:'1px solid #ffccc7',borderRadius:8,padding:'10px 12px',marginBottom:12,color:'#cf1322',fontSize:13,lineHeight:1.7}},
+                fileDup.length ? h('div',null, T.previewFileDup(fileDup.join('、'))) : null,
+                existedCodes.length ? h('div',null, T.previewExisted(existedCodes.join('、'))) : null
+              )
+            : h('div',{style:{fontSize:13,color:'#888',marginBottom:12}}, T.previewSub(bx.length)),
+          h('div',{style:{display:'flex',flexDirection:'column',gap:10}},
+            bx.map(function(b, i){
+              var isC = fileDup.indexOf(b.box_code) >= 0 || existedCodes.indexOf(b.box_code) >= 0;
+              return h('div',{key:i,style:{border:'1px solid '+(isC?'#ffccc7':'#eef0f3'),borderRadius:8,padding:'10px 12px',background:isC?'#fff7f7':'#fafcff'}},
+                h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:6,gap:8}},
+                  h('div',{style:{minWidth:0}},
+                    h('span',{style:{fontWeight:700,fontFamily:'monospace',fontSize:14,color:isC?'#cf1322':'#333'}}, (b.box_code||'').replace(/\n/g,' ')),
+                    b.remark ? h('span',{style:{marginLeft:8,fontSize:12,color:'#999'}}, b.remark) : null
+                  ),
+                  h('span',{style:{fontSize:13,color:'#1677ff',fontWeight:700,whiteSpace:'nowrap'}}, T.previewBoxMeta(b.item_count, b.total_qty))
+                ),
+                h('div',{style:{display:'flex',flexWrap:'wrap',gap:'6px 10px'}},
+                  (b.items || []).map(function(it, j){
+                    return h('span',{key:j,style:{fontSize:12,fontFamily:'monospace',background:'#f0f4fa',borderRadius:6,padding:'2px 8px',color:'#555'}},
+                      (it.product_model||'') + ' ×' + (it.quantity||0));
+                  })
+                )
+              );
+            })
+          ),
+          h('div',{className:'modal-actions'},
+            h('button',{className:'btn btn-ghost',disabled:importing,onClick:function(){ if(!importing) cancelImport(); }}, T.previewCancel),
+            h('button',{className:'btn btn-primary',disabled:importing || conflict,onClick:doImportConfirmed}, importing ? '…' : T.previewConfirm)
+          )
+        )
+      );
+    })() : null,
     // ── 编辑箱子弹窗（箱唛编码 / 备注）──
     editBox ? h('div',{className:'modal-overlay',onClick:function(){ if(!editBox.busy) setEditBox(null); }},
       h('div',{className:'modal-box',onClick:function(e){ e.stopPropagation(); }},
