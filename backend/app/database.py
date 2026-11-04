@@ -26,6 +26,13 @@ async def init_db():
         _cols = [row[1] for row in res.fetchall()]
         if _cols and "remark" not in _cols:
             await conn.exec_driver_sql("ALTER TABLE inbound_waybills ADD COLUMN remark VARCHAR(500)")
+        # 送仓明细：补充「来源箱子库存明细行 id」（精确到某一包）
+        res2 = await conn.exec_driver_sql("PRAGMA table_info(delivery_plan_items)")
+        _cols2 = [row[1] for row in res2.fetchall()]
+        if _cols2 and "box_item_id" not in _cols2:
+            await conn.exec_driver_sql("ALTER TABLE delivery_plan_items ADD COLUMN box_item_id INTEGER")
+        if _cols2 and "box_code" not in _cols2:
+            await conn.exec_driver_sql("ALTER TABLE delivery_plan_items ADD COLUMN box_code VARCHAR(200)")
 
     # Seed default user
     async with async_session() as session:

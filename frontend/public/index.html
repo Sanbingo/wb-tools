@@ -30,13 +30,15 @@
     .param-label { font-size: 12px; color: #999; margin-bottom: 4px; }
     .param-input { width: 100%; padding: 6px 10px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 14px; text-align: center; }
     .param-input:focus { outline: none; border-color: #1677ff; box-shadow: 0 0 0 2px rgba(22,119,255,.1); }
+    .param-input::placeholder { color: #bbb; opacity: 1; }
     .date-input { width: 100%; padding: 6px 10px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 14px; }
     .date-input:focus { outline: none; border-color: #1677ff; box-shadow: 0 0 0 2px rgba(22,119,255,.1); }
     .fetch-progress { background: #e6f4ff; border: 1px solid #91caff; border-radius: 6px; padding: 14px 16px; margin-top: 12px; display: flex; align-items: center; gap: 10px; font-size: 14px; color: #1677ff; }
     .result-box { background: #f6ffed; border: 1px solid #b7eb8f; border-radius: 6px; padding: 14px 16px; margin-top: 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
     .result-box .msg { font-weight: 600; color: #52c41a; }
     .tab-bar { background: #fff; border-bottom: 1px solid #e8e8e8; display: flex; padding: 0 16px; }
-    .tab-item { padding: 12px 20px; cursor: pointer; font-size: 14px; color: #666; border-bottom: 2px solid transparent; transition: all .3s; user-select: none; }
+    .tab-badge { position: absolute; top: 8px; right: 8px; display: inline-flex; align-items: center; justify-content: center; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 7px; background: #ff4d4f; color: #fff; font-size: 9px; font-weight: 700; line-height: 1; box-shadow: 0 0 0 1px #fff; }
+    .tab-item { position: relative; padding: 12px 20px; cursor: pointer; font-size: 14px; color: #666; border-bottom: 2px solid transparent; transition: all .3s; user-select: none; }
     .tab-item:hover { color: #1677ff; }
     .tab-item.active { color: #1677ff; border-bottom-color: #1677ff; font-weight: 600; }
     .login-overlay { position: fixed; inset: 0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; align-items: center; justify-content: center; z-index: 9999; }
@@ -1902,6 +1904,603 @@ function LogTab(props) {
   );
 }
 
+// ═══════════════════════════════════════════════════════════
+// 送仓计划（Delivery Plan）
+// ═══════════════════════════════════════════════════════════
+var DL_T = {
+  zh: {
+    title: '🚚 送仓计划', sub: '按箱子为单位创建送仓计划，确认出库后扣减箱子库存',
+    createBtn: '＋ 创建送仓计划', noData: '暂无送仓计划，点击右上角「创建送仓计划」',
+    colDate: '送仓时间', colStation: '站点', colBoxes: '箱子数', colQty: '总数量',
+    colRemark: '备注', colStatus: '状态', colCreated: '创建时间', colAction: '操作',
+    statusPending: '待出库', statusDone: '已完成',
+    viewHint: '查看清单', downloadHint: '下载文件', editHint: '编辑', deleteHint: '删除', outboundBtn: '📤 出库',
+    formTitleNew: '➕ 创建送仓计划', formTitleEdit: '✏️ 编辑送仓计划',
+    planDate: '送仓时间', station: '送仓站点', remark: '备注', phRemark: '选填',
+    stationWarehouse: '仓库', stationStation: '站点',
+    boxesTitle: '箱子清单', addBoxBtn: '＋ 添加箱子', removeBox: '移除该箱子',
+    boxCode: '箱唛编码', phBoxCode: '请选择箱唛编码', pickBoxHint: '从「箱子库存」选择',
+    modelsTitle: '勾选产品型号并填写数量', noBoxModels: '请先选择箱唛编码',
+    uploadFile: '📎 上传文件', reupload: '重新上传', fileChosen: '已选文件', noFile: '未上传文件',
+    submitBtn: '保存', cancelBtn: '取消', saving: '保存中…',
+    needBox: '请至少添加一个箱子并填写数量', needQty: '请填写数量', needStation: '请选择送仓站点',
+    createOk: '✅ 已创建送仓计划', updateOk: '✅ 已保存修改',
+    loadErr: '加载失败', opErr: '操作失败', netErr: '网络错误',
+    detailTitle: function(id){ return '送仓计划 #'+id+' · 清单'; },
+    detailSub: function(d,s){ return '送仓时间 '+d+' · 站点 '+s; },
+    thBox: '箱子', thModel: '产品型号', thQty: '数量', boxSubtotal: function(n){ return '小计 '+n; },
+    downloadFile: '⬇ 下载', noFileCell: '—',
+    outboundTitle: '确认出库', 
+    outboundMsg: function(id){ return '确认送仓计划 #'+id+' 已出库吗？确认后将扣减对应箱子库存，状态变为「已完成」，不可撤销。'; },
+    outboundYes: '确认出库', outboundOk: '✅ 已出库', cancel: '取消',
+    deleteTitle: '删除送仓计划',
+    deleteMsg: function(id){ return '确定删除送仓计划 #'+id+' 吗？计划、箱子及已上传文件都将被移除，不可恢复。'; },
+    deleteYes: '删除', deleteOk: '✅ 已删除',
+    closeBtn: '关闭', loading: '加载中…',
+    qtyExceed: function(avail){ return '最多 '+avail; },
+    sourceLabel: '箱唛', addSourceBtn: '＋ 添加箱唛', removeSource: '移除该箱唛',
+    phSourceBox: '请选择箱唛', cartonLabel: function(n){ return '发货箱 '+n; }, sourcePrefix: '箱唛',
+    needSourceQty: '请为所选箱唛至少填写一个型号的数量', binLabel: '货位码'
+  },
+  ru: {
+    title: '🚚 План поставки', sub: 'Создавайте план поставки по коробам; после подтверждения остатки коробов списываются',
+    createBtn: '＋ Создать план поставки', noData: 'Планов поставки нет — нажмите «Создать план поставки»',
+    colDate: 'Дата поставки', colStation: 'Пункт', colBoxes: 'Коробов', colQty: 'Всего',
+    colRemark: 'Примечание', colStatus: 'Статус', colCreated: 'Создано', colAction: 'Действие',
+    statusPending: 'Ожидает отгрузки', statusDone: 'Завершено',
+    viewHint: 'Состав', downloadHint: 'Скачать файл', editHint: 'Изменить', deleteHint: 'Удалить', outboundBtn: '📤 Отгрузить',
+    formTitleNew: '➕ Создать план поставки', formTitleEdit: '✏️ Изменить план поставки',
+    planDate: 'Дата поставки', station: 'Пункт поставки', remark: 'Примечание', phRemark: 'необязательно',
+    stationWarehouse: 'Склад', stationStation: 'Пункт',
+    boxesTitle: 'Короба', addBoxBtn: '＋ Добавить короб', removeBox: 'Удалить короб',
+    boxCode: 'Код короба', phBoxCode: 'Выберите код короба', pickBoxHint: 'из «Остатки коробов»',
+    modelsTitle: 'Отметьте модели и укажите количество', noBoxModels: 'Сначала выберите код короба',
+    uploadFile: '📎 Загрузить файл', reupload: 'Заменить', fileChosen: 'Выбран файл', noFile: 'Файл не загружен',
+    submitBtn: 'Сохранить', cancelBtn: 'Отмена', saving: 'Сохранение…',
+    needBox: 'Добавьте хотя бы один короб и укажите количество', needQty: 'Укажите количество', needStation: 'Выберите пункт поставки',
+    createOk: '✅ План поставки создан', updateOk: '✅ Изменения сохранены',
+    loadErr: 'Ошибка загрузки', opErr: 'Ошибка операции', netErr: 'Сетевая ошибка',
+    detailTitle: function(id){ return 'План поставки #'+id+' · состав'; },
+    detailSub: function(d,s){ return 'Дата '+d+' · Пункт '+s; },
+    thBox: 'Короб', thModel: 'Модель', thQty: 'Кол-во', boxSubtotal: function(n){ return 'Подытог '+n; },
+    downloadFile: '⬇ Скачать', noFileCell: '—',
+    outboundTitle: 'Подтвердить отгрузку',
+    outboundMsg: function(id){ return 'Подтвердить отгрузку плана #'+id+'? Остатки коробов будут списаны, статус станет «Завершено», отмена невозможна.'; },
+    outboundYes: 'Отгрузить', outboundOk: '✅ Отгружено', cancel: 'Отмена',
+    deleteTitle: 'Удалить план поставки',
+    deleteMsg: function(id){ return 'Удалить план поставки #'+id+'? План, короба и загруженные файлы будут удалены безвозвратно.'; },
+    deleteYes: 'Удалить', deleteOk: '✅ Удалено',
+    closeBtn: 'Закрыть', loading: 'Загрузка…',
+    qtyExceed: function(avail){ return 'макс. '+avail; },
+    sourceLabel: 'Код короба', addSourceBtn: '＋ Добавить код короба', removeSource: 'Удалить код',
+    phSourceBox: 'Выберите код короба', cartonLabel: function(n){ return 'Короб '+n; }, sourcePrefix: 'Короб',
+    needSourceQty: 'Укажите количество хотя бы по одному коробу', binLabel: 'Код ячейки'
+  }
+};
+
+function DeliveryTab(props) {
+  var LG = useState(localStorage.getItem('wb_inv_lang') || 'zh'), lang = LG[0], setLang = LG[1];
+  function setL(l){ setLang(l); try { localStorage.setItem('wb_inv_lang', l); } catch(e){} }
+  var T = DL_T[lang] || DL_T.zh;
+
+  var S1 = useState([]), plans = S1[0], setPlans = S1[1];
+  var S2 = useState(true), loading = S2[0], setLoading = S2[1];
+  var S3 = useState(''), err = S3[0], setErr = S3[1];
+  var S4 = useState(''), okMsg = S4[0], setOkMsg = S4[1];
+  var S5 = useState([]), boxesInv = S5[0], setBoxesInv = S5[1];      // 箱子库存（供选择）
+  var S6 = useState(null), form = S6[0], setForm = S6[1];             // 表单状态（null=关闭）
+  var S7 = useState(null), detail = S7[0], setDetail = S7[1];         // 查看清单弹窗
+  var S8 = useState(null), outboundTarget = S8[0], setOutboundTarget = S8[1];
+  var S9 = useState(false), busy = S9[0], setBusy = S9[1];
+  var S10 = useState(null), deleteTarget = S10[0], setDeleteTarget = S10[1];
+
+  function load() {
+    setLoading(true); setErr('');
+    authFetch(API+'/delivery/plans').then(function(r){return r.json();}).then(function(d){
+      if (d && d.plans) {
+        setPlans(d.plans);
+        if (props && props.onCount) {
+          props.onCount(d.plans.filter(function(p){ return (p.status||'') !== '已完成'; }).length);
+        }
+      }
+      setLoading(false);
+    }).catch(function(){ setErr(T.loadErr); setLoading(false); });
+  }
+  function loadBoxes() {
+    authFetch(API+'/boxes').then(function(r){return r.json();}).then(function(d){
+      if (d && d.boxes) setBoxesInv(d.boxes);
+    }).catch(function(){});
+  }
+  useEffect(function(){ load(); loadBoxes(); }, []);
+
+  // ── 打开创建/编辑表单 ──
+  function openCreate() {
+    setErr(''); setOkMsg('');
+    setForm({ id:null, plan_date: new Date().toISOString().slice(0,10), station: '', remark: '', boxes: [ newFormBox() ] });
+  }
+  function newFormSource() {
+    return { sid: 's'+Date.now()+'_'+Math.random().toString(36).slice(2,7), box_id:'', box_code:'', items:{} };
+  }
+  function newFormBox() {
+    return { key: 'b'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+             filename:'', original_name:'', fileLabel:'', sources:[ newFormSource() ] };
+  }
+  function openEdit(p) {
+    setErr(''); setOkMsg('');
+    var used = {};   // 全局 used：box_item_id，避免兜底匹配重复占用同一箱内行
+    function findInvByCode(code){
+      for (var i=0;i<boxesInv.length;i++){ if ((boxesInv[i].box_code||'') === (code||'')) return boxesInv[i]; }
+      return null;
+    }
+    var fboxes = (p.boxes||[]).map(function(b){
+      var cartonCode = b.box_code || '';
+      var groups = {};   // box_code -> { box_code, items:{} }
+      var order = [];
+      (b.items||[]).forEach(function(it){
+        var srcCode = it.box_code || cartonCode || '';
+        if (!groups[srcCode]) { groups[srcCode] = { box_code: srcCode, items:{} }; order.push(srcCode); }
+        var g = groups[srcCode];
+        var inv = findInvByCode(srcCode);
+        var key = null;
+        if (it.box_item_id !== undefined && it.box_item_id !== null && inv && inv.items) {
+          for (var j=0;j<inv.items.length;j++){ if (String(inv.items[j].id) === String(it.box_item_id)){ key = String(inv.items[j].id); break; } }
+        }
+        if (key === null && inv && inv.items) {
+          for (var j2=0;j2<inv.items.length;j2++){
+            var cand = inv.items[j2]; var ck = String(cand.id);
+            if ((cand.product_model||'') === (it.product_model||'') && !used[ck]) { key = ck; break; }
+          }
+        }
+        if (key === null) { key = 'orphan_'+it.id; }
+        used[key] = true;
+        g.items[key] = { model: it.product_model, qty: it.quantity };
+      });
+      var sources = order.map(function(code){
+        var inv = findInvByCode(code);
+        return { sid: 's'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+                 box_id: inv ? String(inv.id) : '', box_code: code, items: groups[code].items };
+      });
+      if (!sources.length) sources = [ newFormSource() ];
+      return { key:'b'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+               filename: b.filename || '', original_name: b.original_name || '',
+               fileLabel: b.original_name || (b.filename ? T.fileChosen : ''), sources: sources, _existing:true };
+    });
+    setForm({ id: p.id, plan_date: p.plan_date || '', station: p.station || '', remark: p.remark || '',
+              boxes: fboxes.length ? fboxes : [ newFormBox() ] });
+  }
+
+  function updForm(k, v) { setForm(function(p){ var o={}; for(var kk in p) o[kk]=p[kk]; o[k]=v; return o; }); }
+  function updBox(idx, patch) {
+    setForm(function(p){
+      var boxes = p.boxes.slice();
+      var nb = {}; for (var k in boxes[idx]) nb[k]=boxes[idx][k]; for (var k2 in patch) nb[k2]=patch[k2];
+      boxes[idx] = nb;
+      var o={}; for(var kk in p) o[kk]=p[kk]; o.boxes=boxes; return o;
+    });
+  }
+  function addFormBox() { setForm(function(p){ var o={}; for(var k in p) o[k]=p[k]; o.boxes=p.boxes.concat([newFormBox()]); return o; }); }
+  function removeFormBox(idx) {
+    setForm(function(p){ var bs=p.boxes.slice(); bs.splice(idx,1); if(!bs.length) bs=[newFormBox()]; var o={}; for(var k in p) o[k]=p[k]; o.boxes=bs; return o; });
+  }
+
+  // 更新某个发货箱内某个来源箱唛的属性（box_id / box_code / items ...）
+  function updSource(idx, sIdx, patch) {
+    setForm(function(p){
+      var boxes = p.boxes.slice();
+      var nb = {}; for (var k in boxes[idx]) nb[k]=boxes[idx][k];
+      var srcs = (nb.sources||[]).slice();
+      var ns = {}; for (var k2 in srcs[sIdx]) ns[k2]=srcs[sIdx][k2]; for (var k3 in patch) ns[k3]=patch[k3];
+      srcs[sIdx] = ns; nb.sources = srcs; boxes[idx]=nb;
+      var o={}; for(var kk in p) o[kk]=p[kk]; o.boxes=boxes; return o;
+    });
+  }
+  function addFormSource(idx) {
+    setForm(function(p){
+      var boxes = p.boxes.slice();
+      var nb = {}; for (var k in boxes[idx]) nb[k]=boxes[idx][k];
+      nb.sources = (nb.sources||[]).concat([newFormSource()]); boxes[idx]=nb;
+      var o={}; for(var kk in p) o[kk]=p[kk]; o.boxes=boxes; return o;
+    });
+  }
+  function removeFormSource(idx, sIdx) {
+    setForm(function(p){
+      var boxes = p.boxes.slice();
+      var nb = {}; for (var k in boxes[idx]) nb[k]=boxes[idx][k];
+      var srcs = (nb.sources||[]).slice(); srcs.splice(sIdx,1); if(!srcs.length) srcs=[newFormSource()];
+      nb.sources = srcs; boxes[idx]=nb;
+      var o={}; for(var kk in p) o[kk]=p[kk]; o.boxes=boxes; return o;
+    });
+  }
+
+  // 选中来源箱唛编码后，加载该来源箱的型号列表
+  function pickSourceBox(idx, sIdx, boxId) {
+    var b = null;
+    for (var i=0;i<boxesInv.length;i++){ if (String(boxesInv[i].id) === String(boxId)) { b = boxesInv[i]; break; } }
+    updSource(idx, sIdx, { box_id: boxId ? Number(boxId) : '', box_code: b ? b.box_code : '', items: {} });
+  }
+
+  // 上传箱子附属文件
+  function uploadBoxFile(idx, file) {
+    if (!file) return;
+    setBusy(true); setErr('');
+    var fd = new FormData(); fd.append('file', file);
+    authFetch(API+'/delivery/upload-file', {method:'POST', body:fd})
+      .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
+      .then(function(r){
+        setBusy(false);
+        if (r.status === 200 && r.data && r.data.filename) {
+          updBox(idx, { filename: r.data.filename, original_name: r.data.original_name, fileLabel: r.data.original_name });
+        } else { setErr((r.data && r.data.detail) || T.opErr); }
+      }).catch(function(){ setBusy(false); setErr(T.netErr); });
+  }
+
+  // 收集表单 → 提交
+  function buildPayload() {
+    var boxes = [];
+    (form.boxes||[]).forEach(function(b){
+      var items = [];
+      var boxIds = []; var codes = {};
+      (b.sources||[]).forEach(function(src){
+        if (src.box_id) { var nbid = Number(src.box_id); if (boxIds.indexOf(nbid) < 0) boxIds.push(nbid); }
+        if (src.box_code) codes[src.box_code] = 1;
+        for (var key in src.items) {
+          var e = src.items[key];
+          var q = parseInt(e && e.qty, 10) || 0;
+          if (q > 0) items.push({ product_model: (e && e.model) || '', quantity: q,
+                                  box_item_id: (parseInt(key, 10) || null), box_code: src.box_code || '' });
+        }
+      });
+      if (!items.length) return;
+      boxes.push({ box_id: boxIds.length ? boxIds[0] : null, box_code: Object.keys(codes).join('、'),
+                   filename: b.filename || '', original_name: b.original_name || '', items: items });
+    });
+    return { plan_date: form.plan_date || '', station: form.station || '', remark: form.remark || '', boxes: boxes };
+  }
+
+  function submitForm() {
+    if (!form) return;
+    if (!form.station) { setErr(T.needStation); return; }
+    var payload = buildPayload();
+    if (!payload.boxes.length) { setErr(T.needBox); return; }
+    setBusy(true); setErr('');
+    var url = form.id ? (API+'/delivery/plans/'+form.id+'/update') : (API+'/delivery/plans');
+    authFetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)})
+      .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
+      .then(function(r){
+        setBusy(false);
+        if (r.status === 200 && r.data && r.data.status === 'success') {
+          setOkMsg(form.id ? T.updateOk : T.createOk);
+          setForm(null); load();
+        } else { setErr((r.data && r.data.detail) || T.opErr); }
+      }).catch(function(){ setBusy(false); setErr(T.netErr); });
+  }
+
+  // 查看清单
+  function openDetail(p) {
+    authFetch(API+'/delivery/plans/'+p.id).then(function(r){return r.json();}).then(function(d){
+      if (d && d.plan) setDetail(d.plan);
+    }).catch(function(){ setErr(T.loadErr); });
+  }
+
+  // 下载某箱子的附属文件
+  function downloadFile(planId, boxRow) {
+    authFetch(API+'/delivery/plans/'+planId+'/boxes/'+boxRow.id+'/download').then(function(r){
+      if (!r.ok) throw new Error('fail');
+      return r.blob();
+    }).then(function(blob){
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = boxRow.original_name || boxRow.filename || 'file';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+    }).catch(function(){ setErr(T.opErr); });
+  }
+
+  // 确认出库
+  function doOutbound() {
+    if (!outboundTarget) return;
+    var p = outboundTarget;
+    setBusy(true); setErr('');
+    authFetch(API+'/delivery/plans/'+p.id+'/outbound', {method:'POST'})
+      .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
+      .then(function(r){
+        setBusy(false); setOutboundTarget(null);
+        if (r.status === 200 && r.data && r.data.status === 'success') { setOkMsg(T.outboundOk); load(); loadBoxes(); }
+        else { setErr((r.data && r.data.detail) || T.opErr); }
+      }).catch(function(){ setBusy(false); setOutboundTarget(null); setErr(T.netErr); });
+  }
+
+  // 删除
+  function doDelete() {
+    if (!deleteTarget) return;
+    var p = deleteTarget;
+    setBusy(true); setErr('');
+    authFetch(API+'/delivery/plans/'+p.id+'/delete', {method:'POST'})
+      .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
+      .then(function(r){
+        setBusy(false); setDeleteTarget(null);
+        if (r.status === 200 && r.data && r.data.status === 'success') { setOkMsg(T.deleteOk); load(); }
+        else { setErr((r.data && r.data.detail) || T.opErr); }
+      }).catch(function(){ setBusy(false); setDeleteTarget(null); setErr(T.netErr); });
+  }
+
+  function statusTag(s) {
+    var done = (s === '已完成');
+    return h('span',{style:{padding:'2px 8px',borderRadius:10,fontSize:12,fontWeight:600,
+      background: done?'#f6ffed':'#e6f4ff', color: done?'#389e0d':'#0958d9',
+      border:'1px solid '+(done?'#b7eb8f':'#91caff')}}, done?T.statusDone:T.statusPending);
+  }
+
+  // ── 表单：单个「来源箱唛」区块（选箱唛 + 勾型号数量）──
+  function renderFormSource(b, idx, src, sIdx) {
+    var inv = null;
+    for (var i=0;i<boxesInv.length;i++){ if (String(boxesInv[i].id) === String(src.box_id)) { inv = boxesInv[i]; break; } }
+    var modelRows = [];
+    var renderedKeys = {};
+    if (inv && inv.items && inv.items.length) {
+      // 每一行箱内明细（每一包）独立勾选：选中 key = 箱内明细行 id，同型号多包互不联动
+      modelRows = inv.items.map(function(it){
+        var iid = String(it.id);
+        renderedKeys[iid] = true;
+        var m = it.product_model;
+        var sel = src.items[iid];
+        var checked = (sel !== undefined);
+        var avail = it.quantity || 0;
+        return h('div',{key:iid, style:{display:'flex',alignItems:'center',gap:10,padding:'4px 0'}},
+          h('input',{type:'checkbox', checked:checked, style:{cursor:'pointer'},
+            onChange:function(e){
+              var items = {}; for (var k in src.items) items[k]=src.items[k];
+              if (e.target.checked) items[iid] = { model: m, qty: '' };
+              else delete items[iid];
+              updSource(idx, sIdx, {items:items});
+            }}),
+          h('span',{style:{fontFamily:'monospace',fontSize:13,minWidth:120}}, m),
+          h('span',{style:{fontSize:12,color:'#999'}}, '库存 '+avail),
+          checked ? h('input',{type:'number',min:1,max:avail,value:sel.qty,
+            placeholder:'0', className:'param-input',
+            style:{width:'90px',textAlign:'center'},
+            onChange:function(e){
+              var items={}; for(var k in src.items) items[k]=src.items[k];
+              items[iid] = { model: m, qty: e.target.value }; updSource(idx, sIdx, {items:items});
+            }}) : null
+        );
+      });
+    }
+    // 残留项：箱内行已被删除但计划里仍保存的选中项（编辑旧数据时避免丢失）
+    for (var ok in src.items) {
+      if (renderedKeys[ok]) continue;
+      (function(okey){
+        var sel = src.items[okey];
+        modelRows.push(h('div',{key:okey, style:{display:'flex',alignItems:'center',gap:10,padding:'4px 0',color:'#fa8c16'}},
+          h('input',{type:'checkbox', checked:true, style:{cursor:'pointer'},
+            onChange:function(e){
+              if (!e.target.checked){ var items={}; for(var k in src.items) items[k]=src.items[k]; delete items[okey]; updSource(idx, sIdx, {items:items}); }
+            }}),
+          h('span',{style:{fontFamily:'monospace',fontSize:13,minWidth:120}}, (sel&&sel.model)||''),
+          h('span',{style:{fontSize:12,color:'#fa8c16'}}, '⚠ 原箱内行已删除'),
+          h('input',{type:'number',min:1,value:sel.qty,className:'param-input',style:{width:'90px',textAlign:'center'},
+            onChange:function(e){
+              var items={}; for(var k in src.items) items[k]=src.items[k];
+              items[okey] = { model:(sel&&sel.model)||'', qty: e.target.value }; updSource(idx, sIdx, {items:items});
+            }})
+        ));
+      })(ok);
+    }
+    if (!modelRows.length && src.box_id) {
+      modelRows = [ h('div',{style:{fontSize:13,color:'#bbb',padding:'4px 0'}}, T.noBoxModels) ];
+    }
+    var showRemoveSrc = ((b.sources||[]).length > 1);
+    return h('div',{key:src.sid, style:{border:'1px dashed #d6e4ff',borderRadius:8,padding:'10px',marginBottom:10,background:'#f7faff'}},
+      h('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:8,flexWrap:'wrap'}},
+        h('span',{style:{fontSize:12,fontWeight:700,color:'#0958d9'}}, T.sourceLabel),
+        h('div',{style:{flex:'1 1 240px',minWidth:'180px'}},
+          h('input',{className:'param-input',type:'text', list:'dl-'+src.sid, style:{textAlign:'left'},
+            value: src.box_code || '', placeholder: T.phSourceBox+' · '+T.pickBoxHint,
+            onChange:function(e){
+              var val = e.target.value;
+              if (val === '') { updSource(idx, sIdx, {box_id:'', box_code:'', items:{}}); return; }
+              var mm = null;
+              for (var q=0;q<boxesInv.length;q++){ if ((boxesInv[q].box_code||'')===val) { mm = boxesInv[q]; break; } }
+              if (mm) {
+                if (String(mm.id) !== String(src.box_id)) updSource(idx, sIdx, {box_id:String(mm.id), box_code:val, items:{}});
+                else updSource(idx, sIdx, {box_code:val});
+              } else {
+                // 部分输入/未匹配：只更新文本，保留已选型号与 box_id，避免打字过程中丢失
+                updSource(idx, sIdx, {box_code:val});
+              }
+            }}),
+          h('datalist',{id:'dl-'+src.sid}, boxesInv.map(function(bx){
+            return h('option',{key:bx.id, value:bx.box_code});
+          }))
+        ),
+        showRemoveSrc ? h('span',{title:T.removeSource,style:{cursor:'pointer',color:'#ff4d4f',fontWeight:700},
+          onClick:function(){ removeFormSource(idx, sIdx); }},'✕') : null
+      ),
+      h('div',null, modelRows)
+    );
+  }
+
+  // ── 表单里的「发货箱编辑行」：一个发货箱可含多个来源箱唛 ──
+  function renderFormBox(b, idx) {
+    return h('div',{key:b.key, style:{border:'1px solid #eef0f3',borderRadius:8,padding:'12px',marginBottom:12,background:'#fafcff'}},
+      h('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:10,flexWrap:'wrap'}},
+        h('span',{style:{fontWeight:700,fontSize:13,color:'#1677ff'}}, T.cartonLabel(idx+1)),
+        h('span',{style:{flex:'1 1 auto',fontSize:12,color:'#999'}}, T.modelsTitle),
+        h('span',{className:'inv-del',title:T.removeBox,style:{cursor:'pointer',color:'#ff4d4f',fontWeight:700},
+          onClick:function(){ removeFormBox(idx); }},'✕')
+      ),
+      (b.sources||[]).map(function(src, sIdx){ return renderFormSource(b, idx, src, sIdx); }),
+      h('button',{className:'btn btn-ghost',style:{fontSize:12,padding:'4px 10px',marginTop:2},onClick:function(){ addFormSource(idx); }}, T.addSourceBtn),
+      h('div',{style:{marginTop:10,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
+        h('label',{className:'btn btn-ghost',style:{fontSize:12,padding:'4px 10px',cursor:'pointer'}},
+          b.filename ? ('↻ '+T.reupload) : T.uploadFile,
+          h('input',{type:'file',style:{display:'none'},
+            onChange:function(e){ var f=e.target.files&&e.target.files[0]; e.target.value=''; uploadBoxFile(idx,f); }})
+        ),
+        h('span',{style:{fontSize:12,color: b.filename?'#389e0d':'#bbb'}},
+          b.filename ? ('📎 '+(b.fileLabel||T.fileChosen)) : T.noFile)
+      )
+    );
+  }
+
+  return h('div',null,
+    h('div',{className:'card'},
+      h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10,marginBottom:12}},
+        h('div',null,
+          h('div',{style:{fontSize:16,fontWeight:700}}, T.title),
+          h('div',{style:{fontSize:12,color:'#999',marginTop:2}}, T.sub)
+        ),
+        h('div',{style:{display:'flex',gap:8,alignItems:'center'}},
+          h('button',{className:'btn btn-ghost',style:{padding:'6px 12px',fontSize:12},onClick:function(){ setL(lang==='zh'?'ru':'zh'); }}, lang==='zh'?'Русский':'中文'),
+          h('button',{className:'btn btn-primary',style:{padding:'6px 14px',fontSize:13},onClick:openCreate}, T.createBtn)
+        )
+      ),
+      err ? h('div',{style:{color:'#ff4d4f',fontSize:13,fontWeight:600,marginBottom:10}}, err) : null,
+      okMsg ? h('div',{style:{color:'#52c41a',fontSize:13,fontWeight:600,marginBottom:10}}, okMsg) : null,
+      (loading ? h('div',{style:{color:'#999',fontSize:13}}, T.loading)
+        : (!plans.length ? h('div',{style:{color:'#999',fontSize:14,padding:'12px 0',textAlign:'center'}}, T.noData)
+          : h('div',{style:{overflowX:'auto'}},
+              h('table',{className:'inv-table'},
+                h('thead',null, h('tr',null,
+                  h('th',{className:'inv-th'},T.colDate), h('th',{className:'inv-th'},T.colStation),
+                  h('th',{className:'inv-th'},T.colBoxes), h('th',{className:'inv-th'},T.colQty),
+                  h('th',{className:'inv-th'},T.colRemark), h('th',{className:'inv-th'},T.colStatus),
+                  h('th',{className:'inv-th'},T.colCreated), h('th',{className:'inv-th'},T.colAction)
+                )),
+                h('tbody',null, plans.map(function(p){
+                  var done = (p.status === '已完成');
+                  return h('tr',{key:p.id},
+                    h('td',{style:{whiteSpace:'nowrap'}}, p.plan_date || '—'),
+                    h('td',null, p.station || '—'),
+                    h('td',{style:{textAlign:'center'}}, p.box_count),
+                    h('td',{style:{textAlign:'center',fontWeight:600}}, p.total_qty),
+                    h('td',{style:{color:'#888',fontSize:13,maxWidth:'160px',overflow:'hidden',textOverflow:'ellipsis'}}, p.remark || '—'),
+                    h('td',null, statusTag(p.status)),
+                    h('td',{style:{fontSize:12,color:'#999',whiteSpace:'nowrap'}}, (p.created_at||'').slice(0,10)),
+                    h('td',{style:{whiteSpace:'nowrap'}},
+                      h('span',{style:{cursor:'pointer',color:'#1677ff',fontSize:13,marginRight:10},title:T.viewHint,onClick:function(){ openDetail(p); }}, '👁'),
+                      !done ? h('span',{style:{cursor:'pointer',color:'#1677ff',fontSize:13,marginRight:10},title:T.editHint,onClick:function(){ openEdit(p); }}, '✎') : null,
+                      !done ? h('span',{style:{cursor:'pointer',color:'#ff4d4f',fontSize:13,marginRight:10},title:T.deleteHint,onClick:function(){ setErr('');setOkMsg('');setDeleteTarget(p); }}, '🗑') : null,
+                      !done ? h('button',{className:'btn btn-success',style:{padding:'3px 10px',fontSize:12},onClick:function(){ setErr('');setOkMsg('');setOutboundTarget(p); }}, T.outboundBtn) : null
+                    )
+                  );
+                }))
+              )
+            )
+        )
+      )
+    ),
+
+    // ── 创建/编辑表单弹窗 ──
+    form ? h('div',{className:'modal-overlay',onClick:function(){ if(!busy) setForm(null); }},
+      h('div',{className:'modal-box',style:{width:'720px',maxWidth:'96vw',maxHeight:'88vh',overflowY:'auto'},onClick:function(e){ e.stopPropagation(); }},
+        h('div',{className:'modal-title'}, form.id ? T.formTitleEdit : T.formTitleNew),
+        h('div',{style:{display:'flex',gap:12,flexWrap:'wrap',marginBottom:14}},
+          h('div',{style:{flex:'1 1 200px'}},
+            h('div',{className:'param-label'}, T.planDate),
+            h('input',{type:'date',className:'param-input',style:{textAlign:'left'},value:form.plan_date,
+              onChange:function(e){ updForm('plan_date', e.target.value); }})
+          ),
+          h('div',{style:{flex:'1 1 200px'}},
+            h('div',{className:'param-label'}, T.station),
+            h('select',{className:'param-input',style:{textAlign:'left'},value:form.station,
+              onChange:function(e){ updForm('station', e.target.value); }},
+              h('option',{value:''}, '— '+T.station+' —'),
+              h('option',{value:'仓库'}, T.stationWarehouse),
+              h('option',{value:'站点'}, T.stationStation)
+            )
+          )
+        ),
+        h('div',{style:{marginBottom:14}},
+          h('div',{className:'param-label'}, T.remark),
+          h('input',{className:'param-input',style:{textAlign:'left'},value:form.remark,placeholder:T.phRemark,
+            onChange:function(e){ updForm('remark', e.target.value); }})
+        ),
+        h('div',{style:{fontWeight:700,fontSize:14,marginBottom:8}}, T.boxesTitle),
+        (form.boxes||[]).map(function(b, idx){ return renderFormBox(b, idx); }),
+        h('button',{className:'btn btn-ghost',style:{fontSize:13,padding:'6px 12px'},onClick:addFormBox}, T.addBoxBtn),
+        err ? h('div',{style:{color:'#ff4d4f',fontSize:13,fontWeight:600,marginTop:10}}, err) : null,
+        h('div',{className:'modal-actions'},
+          h('button',{className:'btn btn-ghost',onClick:function(){ if(!busy) setForm(null); }}, T.cancelBtn),
+          h('button',{className:'btn btn-primary',disabled:busy,onClick:submitForm}, busy?T.saving:T.submitBtn)
+        )
+      )
+    ) : null,
+
+    // ── 查看清单弹窗 ──
+    detail ? h('div',{className:'modal-overlay',onClick:function(){ setDetail(null); }},
+      h('div',{className:'modal-box',style:{width:'680px',maxWidth:'94vw',maxHeight:'84vh',overflowY:'auto'},onClick:function(e){ e.stopPropagation(); }},
+        h('div',{className:'modal-title'}, T.detailTitle(detail.id)),
+        h('div',{style:{fontSize:13,color:'#888',marginBottom:6}}, T.detailSub(detail.plan_date||'—', detail.station||'—')),
+        detail.remark ? h('div',{style:{fontSize:13,color:'#666',marginBottom:10}}, '📝 '+detail.remark) : null,
+        h('div',{style:{marginBottom:10}}, statusTag(detail.status)),
+        (detail.boxes||[]).map(function(bx, bIdx){
+          // 一个发货箱可按来源箱唛分组展示（同一发货箱可来自多个箱唛）
+          var groupsBy = {}; var gOrder = [];
+          (bx.items||[]).forEach(function(it){
+            var code = it.box_code || bx.box_code || '—';
+            if (!groupsBy[code]) { groupsBy[code] = []; gOrder.push(code); }
+            groupsBy[code].push(it);
+          });
+          return h('div',{key:bx.id,style:{border:'1px solid #eef0f3',borderRadius:8,padding:'10px 12px',marginBottom:10,background:'#fafcff'}},
+            h('div',{style:{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8,marginBottom:6}},
+              h('span',{style:{fontWeight:700,fontSize:14,color:'#1677ff'}}, T.cartonLabel(bIdx+1)),
+              h('div',{style:{display:'flex',gap:12,alignItems:'center'}},
+                h('span',{style:{fontSize:13,color:'#1677ff',fontWeight:600}}, T.boxSubtotal(bx.total_qty)),
+                bx.has_file
+                  ? h('span',{style:{display:'inline-flex',gap:5,alignItems:'center'}},
+                      h('span',{style:{fontSize:11,color:'#389e0d',border:'1px solid #b7eb8f',borderRadius:4,padding:'0 5px',fontWeight:600}}, T.binLabel),
+                      h('span',{style:{cursor:'pointer',color:'#389e0d',fontSize:13},onClick:function(){ downloadFile(detail.id, bx); }}, '⬇ '+(bx.original_name||bx.filename)))
+                  : h('span',{style:{fontSize:12,color:'#bbb'}}, T.noFileCell)
+              )
+            ),
+            gOrder.map(function(code){
+              return h('div',{key:'g_'+code, style:{marginBottom:4}},
+                h('div',{style:{fontSize:12,color:'#0958d9',fontWeight:600,marginBottom:4}}, '📦 '+T.sourceLabel+' '+code),
+                h('div',{style:{display:'flex',flexWrap:'wrap',gap:'6px 10px'}},
+                  groupsBy[code].map(function(it){
+                    return h('span',{key:it.id,style:{fontSize:12,fontFamily:'monospace',background:'#f0f4fa',borderRadius:6,padding:'2px 8px',color:'#555'}},
+                      (it.product_model||'') + ' ×' + (it.quantity||0));
+                  })
+                )
+              );
+            })
+          );
+        }),
+        h('div',{className:'modal-actions'},
+          h('button',{className:'btn btn-ghost',onClick:function(){ setDetail(null); }}, T.closeBtn)
+        )
+      )
+    ) : null,
+
+    // ── 确认出库弹窗 ──
+    outboundTarget ? h('div',{className:'modal-overlay',onClick:function(){ if(!busy) setOutboundTarget(null); }},
+      h('div',{className:'modal-box',onClick:function(e){ e.stopPropagation(); }},
+        h('div',{className:'modal-title'}, '⚠️ '+T.outboundTitle),
+        h('div',{style:{fontSize:14,lineHeight:1.7,color:'#555'}}, T.outboundMsg(outboundTarget.id)),
+        err ? h('div',{style:{color:'#ff4d4f',fontSize:13,fontWeight:600,marginTop:10}}, err) : null,
+        h('div',{className:'modal-actions'},
+          h('button',{className:'btn btn-ghost',onClick:function(){ if(!busy) setOutboundTarget(null); }}, T.cancel),
+          h('button',{className:'btn btn-primary',disabled:busy,onClick:doOutbound}, busy?'…':T.outboundYes)
+        )
+      )
+    ) : null,
+
+    // ── 删除确认弹窗 ──
+    deleteTarget ? h('div',{className:'modal-overlay',onClick:function(){ if(!busy) setDeleteTarget(null); }},
+      h('div',{className:'modal-box',onClick:function(e){ e.stopPropagation(); }},
+        h('div',{className:'modal-title'}, '🗑 '+T.deleteTitle),
+        h('div',{style:{fontSize:14,lineHeight:1.7,color:'#555'}}, T.deleteMsg(deleteTarget.id)),
+        err ? h('div',{style:{color:'#ff4d4f',fontSize:13,fontWeight:600,marginTop:10}}, err) : null,
+        h('div',{className:'modal-actions'},
+          h('button',{className:'btn btn-ghost',onClick:function(){ if(!busy) setDeleteTarget(null); }}, T.cancel),
+          h('button',{className:'btn btn-primary',style:{background:'#ff4d4f'},disabled:busy,onClick:doDelete}, busy?'…':T.deleteYes)
+        )
+      )
+    ) : null
+  );
+}
+
 function Page(props) {
   function doLogout() { localStorage.removeItem('wb_token'); localStorage.removeItem('wb_user'); props.onLogout(); }
 
@@ -1909,6 +2508,7 @@ function Page(props) {
   var S2 = useState(13), er = S2[0], setEr = S2[1];
   var S3 = useState(8), tr = S3[0], setTr = S3[1];
   var S4 = useState(12), fr = S4[0], setFr = S4[1];
+  var SD = useState(0), pendingDelivery = SD[0], setPendingDelivery = SD[1];   // 待送仓计划数（标签角标）
 
   // 店铺：列表 + 当前选中 + 新增弹窗
   var SS = useState([]), stores = SS[0], setStores = SS[1];
@@ -1932,6 +2532,15 @@ function Page(props) {
     }).catch(function(){});
   }
   useEffect(function(){ loadStores(); }, []);
+
+  // 「送仓计划」标签角标：统计待出库（未完成）计划数
+  function loadDeliveryCount() {
+    authFetch(API+'/delivery/plans').then(function(r){return r.json();}).then(function(d){
+      var n = ((d && d.plans) || []).filter(function(p){ return (p.status||'') !== '已完成'; }).length;
+      setPendingDelivery(n);
+    }).catch(function(){});
+  }
+  useEffect(function(){ loadDeliveryCount(); }, [curStore]);
 
   function changeStore(id) {
     id = String(id);
@@ -1961,6 +2570,7 @@ function Page(props) {
     {key:'inventory', label:'📦 上架库存'},
     {key:'box', label:'🗃 箱子库存'},
     {key:'inbound', label:'🚚 在途库存'},
+    {key:'delivery', label:'🚛 送仓计划'},
     {key:'logs', label:'📋 操作日志'},
     {key:'manual', label:'📎 手动处理'},
   ];
@@ -1981,11 +2591,14 @@ function Page(props) {
     ),
     h('div',{className:'tab-bar'},
       tabs.map(function(t){
+        var badge = (t.key==='delivery' && pendingDelivery>0)
+          ? h('span',{className:'tab-badge', title:'待送仓 '+pendingDelivery+' 条'}, pendingDelivery>99 ? '99+' : String(pendingDelivery))
+          : null;
         return h('div',{
           key:t.key,
           className:'tab-item'+(tab===t.key?' active':''),
           onClick:function(){setTab(t.key);}
-        }, t.label);
+        }, t.label, badge);
       })
     ),
     h('div',{className:'container'},
@@ -1995,6 +2608,8 @@ function Page(props) {
         ? h(BoxTab,{key:'box-'+curStore, onGotoInbound:function(){ setTab('inbound'); }})
         : tab==='inbound'
         ? h(InboundTab,{key:'inbound-'+curStore})
+        : tab==='delivery'
+        ? h(DeliveryTab,{key:'delivery-'+curStore, onCount:setPendingDelivery})
         : tab==='logs'
         ? h(LogTab,{key:'logs-'+curStore})
         : h(ManualTab,{key:'manual-'+curStore, er:er,tr:tr,fr:fr,setEr:setEr,setTr:setTr,setFr:setFr})

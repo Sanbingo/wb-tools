@@ -247,3 +247,44 @@ class InboundItem(Base):
     quantity = Column(Integer, default=0)                   # 数量
     row_order = Column(Integer, default=0)                  # 原始行顺序（保留展示顺序）
     created_at = Column(DateTime, default=_now)
+
+
+class DeliveryPlan(Base):
+    """送仓计划：一次送货到 WB 仓库/站点的计划单，含送仓时间、站点、备注与状态。"""
+    __tablename__ = "delivery_plans"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    store_id = Column(Integer, index=True, nullable=False, default=1)   # 所属店铺
+    plan_date = Column(String(30))                          # 送仓时间（文本，如 2026-11-10）
+    station = Column(String(20))                            # 送仓站点：仓库 / 站点
+    remark = Column(String(500))                            # 备注
+    status = Column(String(20), default="待出库")           # 状态：待出库 / 已完成
+    created_at = Column(DateTime, default=_now, index=True)
+    completed_at = Column(DateTime)                         # 确认出库时间
+
+
+class DeliveryPlanBox(Base):
+    """送仓计划里的一个箱子：来源「箱子库存」的箱子 + 上传的附属文件。"""
+    __tablename__ = "delivery_plan_boxes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    plan_id = Column(Integer, ForeignKey("delivery_plans.id"), index=True, nullable=False)
+    box_id = Column(Integer)                                # 来源箱子 id（箱子库存）
+    box_code = Column(String(200))                          # 箱唛编码（快照）
+    filename = Column(String(255))                          # 附属文件存储名（uuid_原名）
+    original_name = Column(String(255))                     # 附属文件原始名（下载时用）
+    file_path = Column(String(500))                         # 附属文件磁盘路径
+    created_at = Column(DateTime, default=_now)
+
+
+class DeliveryPlanItem(Base):
+    """送仓计划某发货箱里的一行产品明细：来源箱唛（某来源箱）+ 型号 + 送仓数量。"""
+    __tablename__ = "delivery_plan_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    plan_box_id = Column(Integer, ForeignKey("delivery_plan_boxes.id"), index=True, nullable=False)
+    box_item_id = Column(Integer)                           # 来源「箱子库存」明细行 id（精确到某一包，可为空=按型号兜底）
+    box_code = Column(String(200))                          # 来源箱唛编码（快照，一个发货箱可来自多个箱唛）
+    product_model = Column(String(200))                     # 产品型号
+    quantity = Column(Integer, default=0)                   # 送仓数量
+    created_at = Column(DateTime, default=_now)
