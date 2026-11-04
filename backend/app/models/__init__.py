@@ -264,16 +264,28 @@ class DeliveryPlan(Base):
 
 
 class DeliveryPlanBox(Base):
-    """送仓计划里的一个箱子：来源「箱子库存」的箱子 + 上传的附属文件。"""
+    """送仓计划里的一个箱子：来源「箱子库存」的箱子 + 用户填写的外箱编码。"""
     __tablename__ = "delivery_plan_boxes"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     plan_id = Column(Integer, ForeignKey("delivery_plans.id"), index=True, nullable=False)
     box_id = Column(Integer)                                # 来源箱子 id（箱子库存）
     box_code = Column(String(200))                          # 箱唛编码（快照）
+    outer_code = Column(String(200))                        # 外箱编码（用户手工填写）
     filename = Column(String(255))                          # 附属文件存储名（uuid_原名）
     original_name = Column(String(255))                     # 附属文件原始名（下载时用）
     file_path = Column(String(500))                         # 附属文件磁盘路径
+    created_at = Column(DateTime, default=_now)
+
+
+class DeliveryPlanFile(Base):
+    """送仓计划的送仓文件：一个计划可上传多个文件。"""
+    __tablename__ = "delivery_plan_files"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    plan_id = Column(Integer, ForeignKey("delivery_plans.id"), index=True, nullable=False)
+    filename = Column(String(255))                          # 存储名（uuid_原名）
+    original_name = Column(String(255))                     # 原始文件名
     created_at = Column(DateTime, default=_now)
 
 

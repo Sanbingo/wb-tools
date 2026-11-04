@@ -12,7 +12,7 @@ import io, os, uuid, glob, tempfile, httpx, unicodedata
 from urllib.parse import quote
 
 from ..database import get_db
-from ..models import Sale, Order, Stock, DailySummary, SyncLog, UploadedReport, User, InventoryItem, InventoryLog, Box, BoxItem, Store, InboundWaybill, InboundItem, DeliveryPlan, DeliveryPlanBox, DeliveryPlanItem
+from ..models import Sale, Order, Stock, DailySummary, SyncLog, UploadedReport, User, InventoryItem, InventoryLog, Box, BoxItem, Store, InboundWaybill, InboundItem, DeliveryPlan, DeliveryPlanBox, DeliveryPlanItem, DeliveryPlanFile
 from ..services.wb_service import WBService
 from ..config import settings
 
@@ -3012,6 +3012,7 @@ class DeliveryItemIn(BaseModel):
 class DeliveryBoxIn(BaseModel):
     box_id: Optional[int] = None
     box_code: str = ""
+    outer_code: str = ""        # 外箱编码（用户手工填写）
     filename: str = ""          # 上传后的存储文件名（uuid_原名）
     original_name: str = ""     # 原始文件名
     items: list[DeliveryItemIn] = []
@@ -3030,7 +3031,7 @@ def _safe_delivery_path(filename: str) -> str:
     return os.path.join(DELIVERY_DIR, base)
 
 
-def _delivery_plan_dict(p: DeliveryPlan, boxes: list, items_by_box: dict) -> dict:
+def _delivery_plan_dict(p: DeliveryPlan, boxes: list, items_by_box: dict, files: list = None) -> dict:
     out_boxes = []
     total_qty = 0
     for b in boxes:
@@ -3041,6 +3042,7 @@ def _delivery_plan_dict(p: DeliveryPlan, boxes: list, items_by_box: dict) -> dic
             "id": b.id,
             "box_id": b.box_id,
             "box_code": b.box_code or "",
+            "outer_code": getattr(b, "outer_code", "") or "",
             "filename": b.filename or "",
             "original_name": b.original_name if hasattr(b, "original_name") else (b.filename or ""),
             "has_file": bool(b.filename),
@@ -3058,8 +3060,15 @@ def _delivery_plan_dict(p: DeliveryPlan, boxes: list, items_by_box: dict) -> dic
         "total_qty": total_qty,
         "created_at": p.created_at.isoformat() if p.created_at else None,
         "completed_at": p.completed_at.isoformat() if p.completed_at else None,
+        "files": [{"id": f.id, "filename": f.filename or "", "original_name": f.original_name or f.filename or ""}
+                  for f in (files or [])],
         "boxes": out_boxes,
     }
+
+
+async def _load_plan_files(db: AsyncSession, plan_id: int):
+    r = await db.execute(select(DeliveryPlanFile).where(DeliveryPlanFile.plan_id == plan_id).order_by(DeliveryPlanFile.id))
+    return r.scalars().all()
 
 
 async def _load_plan_boxes(db: AsyncSession, plan_id: int):
@@ -3090,6 +3099,59 @@ async def delivery_upload_file(
     return {"status": "success", "filename": stored, "original_name": orig}
 
 
+@router.post("/delivery/plans/{pid}/files")
+async def delivery_upload_plan_files(
+    pid: int,
+    files: list[UploadFile] = File(...),
+    store_id: int = Query(1),
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """给送仓计划上传送仓文件（支持一次多个）。"""
+    p = await db.get(DeliveryPlan, pid)
+    if not p or p.store_id != store_id:
+        raise HTTPException(status_code=404, detail="送仓计划不存在")
+    os.makedirs(DELIVERY_DIR, exist_ok=True)
+    saved = []
+    for file in files:
+        if not file or not (file.filename or "").strip():
+            continue
+        orig = file.filename.strip()
+        stored = f"{uuid.uuid4()}_{orig}"
+        content = await file.read()
+        with open(_safe_delivery_path(stored), "wb") as f:
+            f.write(content)
+        rec = DeliveryPlanFile(plan_id=pid, filename=stored, original_name=orig)
+        db.add(rec)
+        await db.flush()
+        saved.append({"id": rec.id, "filename": stored, "original_name": orig})
+    await db.commit()
+    return {"status": "success", "files": saved}
+
+
+@router.get("/delivery/plans/{pid}/files/{fid}/download")
+async def delivery_download_plan_file(
+    pid: int,
+    fid: int,
+    store_id: int = Query(1),
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """下载送仓计划的某个送仓文件。"""
+    p = await db.get(DeliveryPlan, pid)
+    if not p or p.store_id != store_id:
+        raise HTTPException(status_code=404, detail="送仓计划不存在")
+    rec = await db.get(DeliveryPlanFile, fid)
+    if not rec or rec.plan_id != pid:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    fp = _safe_delivery_path(rec.filename or "")
+    if not os.path.exists(fp):
+        raise HTTPException(status_code=404, detail="文件已丢失")
+    dl_name = rec.original_name or rec.filename or "file"
+    return FileResponse(fp, filename=dl_name,
+                        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(dl_name)}"})
+
+
 @router.get("/delivery/plans")
 async def delivery_list_plans(
     store_id: int = Query(1),
@@ -3102,7 +3164,8 @@ async def delivery_list_plans(
     result = []
     for p in plans:
         boxes, items_by_box = await _load_plan_boxes(db, p.id)
-        result.append(_delivery_plan_dict(p, boxes, items_by_box))
+        files = await _load_plan_files(db, p.id)
+        result.append(_delivery_plan_dict(p, boxes, items_by_box, files))
     return {"plans": result}
 
 
@@ -3118,7 +3181,8 @@ async def delivery_get_plan(
     if not p or p.store_id != store_id:
         raise HTTPException(status_code=404, detail="送仓计划不存在")
     boxes, items_by_box = await _load_plan_boxes(db, pid)
-    return {"status": "success", "plan": _delivery_plan_dict(p, boxes, items_by_box)}
+    files = await _load_plan_files(db, pid)
+    return {"status": "success", "plan": _delivery_plan_dict(p, boxes, items_by_box, files)}
 
 
 @router.post("/delivery/plans")
@@ -3134,6 +3198,8 @@ async def delivery_create_plan(
     boxes = [b for b in req.boxes if (b.items and any(int(i.quantity or 0) > 0 for i in b.items))]
     if not boxes:
         raise HTTPException(status_code=400, detail="请至少填写一个箱子的产品型号与数量")
+    if any(not (b.outer_code or "").strip() for b in boxes):
+        raise HTTPException(status_code=400, detail="请填写每个箱子的外箱编码")
 
     plan = DeliveryPlan(
         store_id=store_id,
@@ -3153,6 +3219,7 @@ async def delivery_create_plan(
             plan_id=plan.id,
             box_id=b.box_id,
             box_code=code,
+            outer_code=(b.outer_code or "").strip(),
             filename=(b.filename or "").strip(),
             original_name=(b.original_name or "").strip(),
         )
@@ -3187,6 +3254,8 @@ async def delivery_update_plan(
     boxes_in = [b for b in req.boxes if (b.items and any(int(i.quantity or 0) > 0 for i in b.items))]
     if not boxes_in:
         raise HTTPException(status_code=400, detail="请至少填写一个箱子的产品型号与数量")
+    if any(not (b.outer_code or "").strip() for b in boxes_in):
+        raise HTTPException(status_code=400, detail="请填写每个箱子的外箱编码")
 
     p.plan_date = (req.plan_date or "").strip()
     p.station = (req.station or "").strip()
@@ -3210,6 +3279,7 @@ async def delivery_update_plan(
             plan_id=pid,
             box_id=b.box_id,
             box_code=_code,
+            outer_code=(b.outer_code or "").strip(),
             filename=(b.filename or "").strip(),
             original_name=(b.original_name or "").strip(),
         )
@@ -3362,6 +3432,10 @@ async def delivery_delete_plan(
     if ids:
         await db.execute(delete(DeliveryPlanItem).where(DeliveryPlanItem.plan_box_id.in_(ids)))
         await db.execute(delete(DeliveryPlanBox).where(DeliveryPlanBox.id.in_(ids)))
+    # 送仓文件：连带删除记录与磁盘文件
+    pfiles = await _load_plan_files(db, pid)
+    files.extend([f.filename for f in pfiles if f.filename])
+    await db.execute(delete(DeliveryPlanFile).where(DeliveryPlanFile.plan_id == pid))
     await db.delete(p)
     await db.commit()
     for fn in files:
