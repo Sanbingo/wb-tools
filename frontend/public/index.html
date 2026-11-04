@@ -1991,6 +1991,20 @@ function DeliveryTab(props) {
   function setL(l){ setLang(l); try { localStorage.setItem('wb_inv_lang', l); } catch(e){} }
   var T = DL_T[lang] || DL_T.zh;
 
+  // 箱唛编码可能含换行/多余空格（Excel 导入残留），浏览器单行 input 会吞掉换行导致精确匹配失败。
+  // dispCode：把任意空白折叠成单个空格（用于显示）；normCode：去掉全部空白（用于宽松匹配）。
+  function dispCode(s){ return String(s || '').replace(/\s+/g, ' ').trim(); }
+  function normCode(s){ return String(s || '').replace(/\s+/g, ''); }
+  function matchBoxByCode(val){
+    var v = val || '';
+    for (var i=0;i<boxesInv.length;i++){ if ((boxesInv[i].box_code||'') === v) return boxesInv[i]; }
+    var dv = dispCode(v);
+    for (var i2=0;i2<boxesInv.length;i2++){ if (dispCode(boxesInv[i2].box_code) === dv) return boxesInv[i2]; }
+    var nv = normCode(v);
+    if (nv) { for (var i3=0;i3<boxesInv.length;i3++){ if (normCode(boxesInv[i3].box_code) === nv) return boxesInv[i3]; } }
+    return null;
+  }
+
   var S1 = useState([]), plans = S1[0], setPlans = S1[1];
   var S2 = useState(true), loading = S2[0], setLoading = S2[1];
   var S3 = useState(''), err = S3[0], setErr = S3[1];
@@ -2038,8 +2052,7 @@ function DeliveryTab(props) {
     setErr(''); setOkMsg('');
     var used = {};   // 全局 used：box_item_id，避免兜底匹配重复占用同一箱内行
     function findInvByCode(code){
-      for (var i=0;i<boxesInv.length;i++){ if ((boxesInv[i].box_code||'') === (code||'')) return boxesInv[i]; }
-      return null;
+      return matchBoxByCode(code);
     }
     var fboxes = (p.boxes||[]).map(function(b){
       var cartonCode = b.box_code || '';
@@ -2067,7 +2080,7 @@ function DeliveryTab(props) {
       var sources = order.map(function(code){
         var inv = findInvByCode(code);
         return { sid: 's'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
-                 box_id: inv ? String(inv.id) : '', box_code: code, items: groups[code].items };
+                 box_id: inv ? String(inv.id) : '', box_code: dispCode(code), items: groups[code].items };
       });
       if (!sources.length) sources = [ newFormSource() ];
       return { key:'b'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
@@ -2335,18 +2348,19 @@ function DeliveryTab(props) {
             onChange:function(e){
               var val = e.target.value;
               if (val === '') { updSource(idx, sIdx, {box_id:'', box_code:'', items:{}}); return; }
-              var mm = null;
-              for (var q=0;q<boxesInv.length;q++){ if ((boxesInv[q].box_code||'')===val) { mm = boxesInv[q]; break; } }
+              var mm = matchBoxByCode(val);
               if (mm) {
-                if (String(mm.id) !== String(src.box_id)) updSource(idx, sIdx, {box_id:String(mm.id), box_code:val, items:{}});
-                else updSource(idx, sIdx, {box_code:val});
+                // 匹配成功：用库存里的规范编码（空白折叠为单空格），避免换行符导致显示/匹配不一致
+                var canon = dispCode(mm.box_code);
+                if (String(mm.id) !== String(src.box_id)) updSource(idx, sIdx, {box_id:String(mm.id), box_code:canon, items:{}});
+                else updSource(idx, sIdx, {box_code:canon});
               } else {
                 // 部分输入/未匹配：只更新文本，保留已选型号与 box_id，避免打字过程中丢失
                 updSource(idx, sIdx, {box_code:val});
               }
             }}),
           h('datalist',{id:'dl-'+src.sid}, boxesInv.map(function(bx){
-            return h('option',{key:bx.id, value:bx.box_code});
+            return h('option',{key:bx.id, value:dispCode(bx.box_code)});
           }))
         ),
         showRemoveSrc ? h('span',{title:T.removeSource,style:{cursor:'pointer',color:'#ff4d4f',fontWeight:700},
