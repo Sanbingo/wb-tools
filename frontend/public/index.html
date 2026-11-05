@@ -176,8 +176,8 @@ function authFetch(url, opts) {
   opts.headers = opts.headers || {};
   var t = getToken();
   if (t) opts.headers['Authorization'] = 'Bearer ' + t;
-  // 自动为库存/箱子相关接口追加 store_id（后端 Query 参数，默认 1）
-  if (typeof url === 'string' && (url.indexOf(API+'/inventory') === 0 || url.indexOf(API+'/boxes') === 0 || url.indexOf(API+'/inbound') === 0)) {
+  // 自动为库存/箱子/在途/送仓相关接口追加 store_id（后端 Query 参数，默认 1）
+  if (typeof url === 'string' && (url.indexOf(API+'/inventory') === 0 || url.indexOf(API+'/boxes') === 0 || url.indexOf(API+'/inbound') === 0 || url.indexOf(API+'/delivery') === 0)) {
     if (url.indexOf('store_id=') === -1) {
       var sep = url.indexOf('?') === -1 ? '?' : '&';
       url = url + sep + 'store_id=' + encodeURIComponent(currentStoreId());
