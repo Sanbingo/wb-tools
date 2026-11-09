@@ -2569,10 +2569,13 @@ async def list_inventory_logs(
     ship = sum(1 for l in logs if l.action == "ship")
     ret = sum(1 for l in logs if l.action == "return")
     transfer = sum((l.delta or 0) for l in logs if l.action == "transfer")
+    outbound = sum(1 for l in logs if l.action == "outbound")
 
-    # 按编码汇总（保持首次出现顺序）
+    # 按编码汇总（保持首次出现顺序；送仓出库记录箱子库存，非编码库存，跳过汇总）
     agg, order = {}, []
     for l in logs:
+        if l.action == "outbound":
+            continue
         c = l.code or ""
         if c not in agg:
             agg[c] = {
@@ -2599,7 +2602,7 @@ async def list_inventory_logs(
         "date": day,
         "today": today,
         "dates": dates,
-        "summary": {"ship": ship, "return": ret, "transfer": transfer, "net": ret + transfer - ship, "total": len(logs)},
+        "summary": {"ship": ship, "return": ret, "transfer": transfer, "outbound": outbound, "net": ret + transfer - ship, "total": len(logs)},
         "items": [_inv_log_dict(l) for l in logs],
         "by_code": by_code,
     }
@@ -2996,6 +2999,50 @@ async def inbound_delete(
     return {"status": "success"}
 
 
+class InboundUpdateRequest(BaseModel):
+    ship_date: str = None
+    waybill_no: str = None
+    remark: str = None
+
+
+@router.post("/inbound/{wid}/update")
+async def inbound_update(
+    wid: int,
+    req: InboundUpdateRequest,
+    store_id: int = Query(1),
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """编辑在途运单（仅「运输中」可改）：可修改 日期 / 运单号 / 备注。
+    运单号在同一店铺内保持唯一（排除自身）。已完成运单不可编辑。"""
+    w = await db.get(InboundWaybill, wid)
+    if not w or w.store_id != store_id:
+        raise HTTPException(status_code=404, detail="运单不存在")
+    if (w.status or "") == "已完成":
+        raise HTTPException(status_code=400, detail="已完成的运单不可编辑")
+
+    if req.waybill_no is not None:
+        new_no = (req.waybill_no or "").strip()
+        if new_no and new_no != (w.waybill_no or ""):
+            dup = await db.execute(
+                select(InboundWaybill.id).where(
+                    InboundWaybill.store_id == store_id,
+                    InboundWaybill.waybill_no == new_no,
+                    InboundWaybill.id != wid,
+                )
+            )
+            if dup.scalar_one_or_none() is not None:
+                raise HTTPException(status_code=400, detail=f"运单号「{new_no}」已存在，不可重复")
+        w.waybill_no = new_no
+    if req.ship_date is not None:
+        w.ship_date = (req.ship_date or "").strip()
+    if req.remark is not None:
+        w.remark = (req.remark or "").strip()
+
+    await db.commit()
+    return {"status": "success"}
+
+
 # ═══════════════════════════════════════════════════════════
 # 送仓计划（Delivery Plan）
 # ═══════════════════════════════════════════════════════════
@@ -3150,6 +3197,36 @@ async def delivery_download_plan_file(
     dl_name = rec.original_name or rec.filename or "file"
     return FileResponse(fp, filename=dl_name,
                         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(dl_name)}"})
+
+
+@router.post("/delivery/plans/{pid}/files/{fid}/delete")
+async def delivery_delete_plan_file(
+    pid: int,
+    fid: int,
+    store_id: int = Query(1),
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """删除送仓计划里的单个送仓文件（仅未完成可删）：删记录 + 物理文件，便于传错后重传。"""
+    p = await db.get(DeliveryPlan, pid)
+    if not p or p.store_id != store_id:
+        raise HTTPException(status_code=404, detail="送仓计划不存在")
+    if (p.status or "") == "已完成":
+        raise HTTPException(status_code=400, detail="已完成送仓的计划不可修改")
+    rec = await db.get(DeliveryPlanFile, fid)
+    if not rec or rec.plan_id != pid:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    fn = rec.filename or ""
+    await db.delete(rec)
+    await db.commit()
+    if fn:
+        fp = _safe_delivery_path(fn)
+        if os.path.exists(fp):
+            try:
+                os.remove(fp)
+            except Exception:
+                pass
+    return {"status": "success"}
 
 
 @router.get("/delivery/plans")
@@ -3403,9 +3480,37 @@ async def delivery_outbound(
             "shortages": shortages,
         })
 
-    # 第二遍：落扣减
+    # 第二遍：落扣减 + 记录箱子库存变化日志（action=outbound，送仓出库）
+    now_local = datetime.now()
+    out_details = []   # (box_item, delta>0, remaining)
     for bid_, rem in _remaining.items():
-        _bi_cache[bid_].quantity = rem
+        bi = _bi_cache[bid_]
+        old = int(bi.quantity or 0)
+        delta = old - rem
+        bi.quantity = rem
+        if delta > 0:
+            out_details.append((bi, delta, rem))
+    # 批量取箱唛快照（箱内型号出库后剩余一并入日志）
+    _box_ids = {bi.box_id for bi, _, _ in out_details if bi.box_id}
+    box_code_map = {}
+    if _box_ids:
+        rb = await db.execute(select(Box.id, Box.box_code).where(Box.id.in_(_box_ids), Box.store_id == store_id))
+        box_code_map = {rid: (rcode or "") for rid, rcode in rb.all()}
+    for bi, delta, rem in out_details:
+        bcode = box_code_map.get(bi.box_id, "")
+        db.add(InventoryLog(
+            store_id=store_id,
+            code=bcode,
+            product_name=bi.product_model or "",
+            action="outbound",
+            delta=-delta,
+            quantity_after=rem,
+            defect_after=0,
+            box_id=bi.box_id,
+            box_code=bcode,
+            log_date=now_local.strftime("%Y-%m-%d"),
+            created_at=now_local,
+        ))
     p.status = "已完成"
     p.completed_at = datetime.utcnow()
     await db.commit()

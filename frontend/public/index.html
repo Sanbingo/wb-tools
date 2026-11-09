@@ -134,13 +134,14 @@
     .box-batch-row .param-input { width: 100%; }
     /* 操作日志 */
     .log-datebar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .log-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin: 16px 0 4px; }
+    .log-stats { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin: 16px 0 4px; }
     .log-stat { border-radius: 8px; padding: 12px 14px; background: #fafafa; border: 1px solid #f0f0f0; text-align: center; }
     .log-stat .v { font-size: 24px; font-weight: 700; line-height: 1.2; color: #333; }
     .log-stat .l { font-size: 12px; color: #999; margin-top: 3px; }
     .log-stat.ship .v { color: #cf1322; }
     .log-stat.ret .v { color: #389e0d; }
     .log-stat.tr .v { color: #d46b08; }
+    .log-stat.out .v { color: #722ed1; }
     .log-stat.net .v { color: #1677ff; }
     .log-datechips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
     .log-chip { padding: 3px 10px; border-radius: 12px; background: #f0f5ff; color: #1677ff; font-size: 12px; cursor: pointer; border: 1px solid #d6e4ff; }
@@ -150,6 +151,7 @@
     .log-type.ship { background: #fff1f0; color: #cf1322; }
     .log-type.ret { background: #f6ffed; color: #389e0d; }
     .log-type.tr { background: #fff7e6; color: #d46b08; }
+    .log-type.out { background: #f9f0ff; color: #722ed1; }
     .log-delta { font-weight: 700; font-family: monospace; }
     .log-delta.neg { color: #cf1322; }
     .log-delta.pos { color: #389e0d; }
@@ -1439,6 +1441,9 @@ var IB_T = {
     deleteDialogTitle: '删除运单',
     deleteDialogMsg: function(no){ return '确定删除运单 '+(no||'')+' 吗？删除后该运单及其明细、原始上传文件都将被移除，不可恢复。'; },
     deleteYes: '删除', deleteCancel: '取消', deleteOk: '✅ 已删除运单',
+    editHint: '编辑运单', editDialogTitle: function(no){ return '编辑运单 '+(no||''); },
+    editDate: '日期', editWaybill: '运单号', editRemark: '备注',
+    editSave: '保存', editCancel: '取消', editOk: '✅ 已保存', editErr: '保存失败', editSaving: '保存中...',
     detailTitle: function(no){ return '运单 '+(no||'')+' · 明细'; },
     boxSubtotal: function(n){ return '小计 '+n; }, totalQty: function(n){ return '总数量 '+n; },
     thName: '品名', thBarcode: '条形码', thSize: '尺码', thQty: '数量', closeBtn: '关闭', loading: '加载中...'
@@ -1461,6 +1466,9 @@ var IB_T = {
     deleteDialogTitle: 'Удалить накладную',
     deleteDialogMsg: function(no){ return 'Удалить накладную '+(no||'')+'? Накладная, её состав и исходный загруженный файл будут удалены без возможности восстановления.'; },
     deleteYes: 'Удалить', deleteCancel: 'Отмена', deleteOk: '✅ Накладная удалена',
+    editHint: 'Редактировать накладную', editDialogTitle: function(no){ return 'Редактирование накладной '+(no||''); },
+    editDate: 'Дата', editWaybill: '№ накладной', editRemark: 'Примечание',
+    editSave: 'Сохранить', editCancel: 'Отмена', editOk: '✅ Сохранено', editErr: 'Ошибка сохранения', editSaving: 'Сохранение...',
     detailTitle: function(no){ return 'Накладная '+(no||'')+' · состав'; },
     boxSubtotal: function(n){ return 'Подытог '+n; }, totalQty: function(n){ return 'Всего '+n; },
     thName: 'Наименование', thBarcode: 'Штрихкод', thSize: 'Размер', thQty: 'Кол-во', closeBtn: 'Закрыть', loading: 'Загрузка...'
@@ -1483,6 +1491,9 @@ function InboundTab(props) {
   var S9 = useState(false), confirming = S9[0], setConfirming = S9[1];
   var S10 = useState(null), deleteTarget = S10[0], setDeleteTarget = S10[1];   // 待删除的运单
   var S11 = useState(false), deleting = S11[0], setDeleting = S11[1];
+  var S12 = useState(null), editTarget = S12[0], setEditTarget = S12[1];   // 编辑中运单 {id, ship_date, waybill_no, remark}
+  var S13 = useState(false), savingEdit = S13[0], setSavingEdit = S13[1];
+  var S14 = useState(''), editErr = S14[0], setEditErr = S14[1];
   var fileRef = useRef(null);
 
   function load() {
@@ -1542,6 +1553,28 @@ function InboundTab(props) {
     }).catch(function(){ setDeleting(false); setErr(T.opErr); });
   }
 
+  function openEdit(w) {
+    setErr(''); setOkMsg(''); setEditErr('');
+    setEditTarget({ id: w.id, ship_date: w.ship_date || '', waybill_no: w.waybill_no || '', remark: w.remark || '' });
+  }
+  function updEdit(k, v) {
+    setEditTarget(function(p){ var o={}; for(var kk in p) o[kk]=p[kk]; o[k]=v; return o; });
+  }
+  function doSaveEdit() {
+    if (!editTarget || savingEdit) return;
+    setSavingEdit(true); setEditErr('');
+    authFetch(API+'/inbound/'+editTarget.id+'/update', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ ship_date: editTarget.ship_date, waybill_no: editTarget.waybill_no, remark: editTarget.remark })
+    }).then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
+      .then(function(r){
+        if (r.status === 200 && r.data && r.data.status === 'success') {
+          setSavingEdit(false); setEditTarget(null); setOkMsg(T.editOk); load();
+        } else {
+          setSavingEdit(false); setEditErr((r.data && r.data.detail) || T.editErr);
+        }
+      }).catch(function(){ setSavingEdit(false); setEditErr(T.editErr); });
+  }
+
   function downloadFile(w) {
     authFetch(API+'/inbound/'+w.id+'/download').then(function(r){ if(!r.ok) throw new Error('fail'); return r.blob(); }).then(function(blob){
       var url = URL.createObjectURL(blob);
@@ -1578,6 +1611,11 @@ function InboundTab(props) {
       h('path',{d:'M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6'}),
       h('path',{d:'M10 11v6M14 11v6'}),
       h('path',{d:'M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2'}));
+  }
+  function iconPencil(){
+    return h('svg',{width:16,height:16,viewBox:'0 0 24 24',fill:'none',stroke:'#0958d9',strokeWidth:2.2,strokeLinecap:'round',strokeLinejoin:'round',style:{display:'block'}},
+      h('path',{d:'M12 20h9'}),
+      h('path',{d:'M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z'}));
   }
 
   return h('div',null,
@@ -1617,7 +1655,7 @@ function InboundTab(props) {
                   h('th',{className:'inv-th'},T.colProvider),
                   h('th',{className:'inv-th'},T.colStatus),
                   h('th',{className:'inv-th'},T.colUploaded),
-                  h('th',{className:'inv-th',style:{width:132,textAlign:'right'}},T.colAction)
+                  h('th',{className:'inv-th',style:{width:168,textAlign:'right'}},T.colAction)
                 )
               ),
               h('tbody',null,
@@ -1636,6 +1674,8 @@ function InboundTab(props) {
                     h('td',null, h('span',{className:'inbound-status '+(done?'done':'transit')}, done ? T.statusDone : T.statusTransit)),
                     h('td',{style:{color:'#999',fontSize:12}}, w.created_at || ''),
                     h('td',{style:{textAlign:'right',whiteSpace:'nowrap'}},
+                      done ? null : h('button',{className:'inbound-act-btn edit',title:T.editHint,
+                        onClick:function(e){ e.stopPropagation(); openEdit(w); }}, iconPencil()),
                       done ? null : h('button',{className:'inbound-act-btn confirm',title:T.confirmHint,
                         onClick:function(e){ e.stopPropagation(); askConfirmArrival(w); }}, iconCheck()),
                       h('button',{className:'inbound-act-btn download',title:T.downloadHint,
@@ -1667,6 +1707,26 @@ function InboundTab(props) {
         h('div',{className:'modal-actions'},
           h('button',{className:'btn btn-ghost',disabled:deleting,onClick:function(){ if(!deleting) setDeleteTarget(null); }}, T.deleteCancel),
           h('button',{className:'btn btn-primary',style:{background:'#cf1322',borderColor:'#cf1322'},disabled:deleting,onClick:doDelete}, deleting ? '…' : T.deleteYes)
+        )
+      )
+    ) : null,
+    // 编辑运单弹窗
+    editTarget ? h('div',{className:'modal-overlay',onClick:function(){ if(!savingEdit) setEditTarget(null); }},
+      h('div',{className:'modal-box',style:{width:'460px',maxWidth:'92vw'},onClick:function(e){ e.stopPropagation(); }},
+        h('div',{className:'modal-title'}, T.editDialogTitle(editTarget.waybill_no||'')),
+        editErr ? h('div',{style:{color:'#ff4d4f',fontSize:13,fontWeight:600,marginBottom:10}},editErr) : null,
+        h('div',{style:{marginBottom:12}},
+          h('div',{className:'param-label'}, T.editDate),
+          h('input',{className:'param-input',type:'text',value:editTarget.ship_date||'',onChange:function(e){ updEdit('ship_date', e.target.value); }})),
+        h('div',{style:{marginBottom:12}},
+          h('div',{className:'param-label'}, T.editWaybill),
+          h('input',{className:'param-input',type:'text',value:editTarget.waybill_no||'',onChange:function(e){ updEdit('waybill_no', e.target.value); }})),
+        h('div',{style:{marginBottom:12}},
+          h('div',{className:'param-label'}, T.editRemark),
+          h('input',{className:'param-input',type:'text',value:editTarget.remark||'',onChange:function(e){ updEdit('remark', e.target.value); }})),
+        h('div',{className:'modal-actions'},
+          h('button',{className:'btn btn-ghost',disabled:savingEdit,onClick:function(){ if(!savingEdit) setEditTarget(null); }}, T.editCancel),
+          h('button',{className:'btn btn-primary',disabled:savingEdit,onClick:doSaveEdit}, savingEdit ? T.editSaving : T.editSave)
         )
       )
     ) : null,
@@ -1719,8 +1779,8 @@ var LOG_T = {
     title: '📋 操作日志', sub: '记录每天的发货 / 退货 / 调拨操作，按天统计与查询',
     dateLabel: '日期', todayBtn: '今天', prevBtn: '‹ 前一天', nextBtn: '后一天 ›', refreshBtn: '刷新',
     datesHint: '有记录的日期：', noDates: '暂无历史记录',
-    ship: '发货', rtn: '退货', shipDefect: '发货·次品', transfer: '调拨',
-    sShip: '发货件数', sRet: '退货件数', sTransfer: '调拨件数', sNet: '净变动', sOps: '操作笔数',
+    ship: '发货', rtn: '退货', shipDefect: '发货·次品', transfer: '调拨', outbound: '送仓出库',
+    sShip: '发货件数', sRet: '退货件数', sTransfer: '调拨件数', sOutbound: '出库件数', sNet: '净变动', sOps: '操作笔数',
     codeTitle: '📊 按编码汇总', detailTitle: '📝 操作明细（按时间顺序）',
     colProduct: '产品名', colCode: '编码', colShip: '发货', colTransfer: '调拨', colRet: '退货', colQty: '正品库存', colDefect: '次品库存', colGood: '正品', colBad: '次品',
     colTime: '时间', colType: '类型', colDelta: '变化',
@@ -1734,8 +1794,8 @@ var LOG_T = {
     title: '📋 Журнал операций', sub: 'Отгрузки, возвраты и перемещения по дням со статистикой',
     dateLabel: 'Дата', todayBtn: 'Сегодня', prevBtn: '‹ Пред. день', nextBtn: 'След. день ›', refreshBtn: 'Обновить',
     datesHint: 'Даты с записями: ', noDates: 'Нет истории',
-    ship: 'Отгрузка', rtn: 'Возврат', shipDefect: 'Отгрузка·брак', transfer: 'Перемещение',
-    sShip: 'Отгружено', sRet: 'Возвратов', sTransfer: 'Перемещено', sNet: 'Итог', sOps: 'Операций',
+    ship: 'Отгрузка', rtn: 'Возврат', shipDefect: 'Отгрузка·брак', transfer: 'Перемещение', outbound: 'Отгрузка поставки',
+    sShip: 'Отгружено', sRet: 'Возвратов', sTransfer: 'Перемещено', sOutbound: 'Отгружено (план)', sNet: 'Итог', sOps: 'Операций',
     codeTitle: '📊 Сводка по кодам', detailTitle: '📝 Детали операций (по времени)',
     colProduct: 'Товар', colCode: 'Код', colShip: 'Отгрузка', colTransfer: 'Перемещение', colRet: 'Возврат', colQty: 'Годный остаток', colDefect: 'Брак', colGood: 'Годный', colBad: 'Брак',
     colTime: 'Время', colType: 'Тип', colDelta: 'Изм.',
@@ -1786,7 +1846,7 @@ function LogTab(props) {
     }).catch(function(){ window.alert(T.delLogFail); });
   }
 
-  var sum = (data && data.summary) || {ship:0, return:0, net:0, total:0};
+  var sum = (data && data.summary) || {ship:0, return:0, transfer:0, outbound:0, net:0, total:0};
   var items = (data && data.items) || [];
   var byCode = (data && data.by_code) || [];
   var dates = (data && data.dates) || [];
@@ -1824,6 +1884,7 @@ function LogTab(props) {
         h('div',{className:'log-stat ship'}, h('div',{className:'v'},sum.ship), h('div',{className:'l'},T.sShip)),
         h('div',{className:'log-stat ret'}, h('div',{className:'v'},sum.return), h('div',{className:'l'},T.sRet)),
         h('div',{className:'log-stat tr'}, h('div',{className:'v'},sum.transfer||0), h('div',{className:'l'},T.sTransfer)),
+        h('div',{className:'log-stat out'}, h('div',{className:'v'},sum.outbound||0), h('div',{className:'l'},T.sOutbound)),
         h('div',{className:'log-stat net'}, h('div',{className:'v'},netTxt), h('div',{className:'l'},T.sNet)),
         h('div',{className:'log-stat'}, h('div',{className:'v'},sum.total), h('div',{className:'l'},T.sOps))
       ),
@@ -1883,9 +1944,10 @@ function LogTab(props) {
           items.map(function(it){
             var isShip = it.action === 'ship';
             var isTrans = it.action === 'transfer';
+            var isOut = it.action === 'outbound';
             var daf = it.defect_after||0;
-            var typeCls = isTrans ? 'tr' : (isShip ? 'ship' : 'ret');
-            var typeTxt = isTrans ? T.transfer : ((isShip && it.from_defect) ? T.shipDefect : (isShip ? T.ship : T.rtn));
+            var typeCls = isOut ? 'out' : (isTrans ? 'tr' : (isShip ? 'ship' : 'ret'));
+            var typeTxt = isOut ? T.outbound : (isTrans ? T.transfer : ((isShip && it.from_defect) ? T.shipDefect : (isShip ? T.ship : T.rtn)));
             return h('tr',{key:it.id},
               h('td',{style:{color:'#888',fontFamily:'monospace'}}, it.time),
               h('td',{style:{color:'#888',fontSize:13}}, it.product_name || ''),
@@ -1944,6 +2006,8 @@ var DL_T = {
     outerCode: '外箱编码', phOuterCode: '手动填写外箱编码',
     filesTitle: '送仓文件', addFilesBtn: '＋ 上传送仓文件', filesHint: '可上传多个文件',
     noFilesYet: '未上传送仓文件', filesDl: '⬇ 下载',
+    filesDel: '✕ 删除', fileDelOk: '文件已删除',
+    filesDelConfirm: function(n){ return '确定删除送仓文件「'+(n||'')+'」吗？删除后需重新上传。'; },
     needOuterCode: '请填写每个箱子的外箱编码', needFiles: '请至少上传一个送仓文件'
   },
   ru: {
@@ -1982,6 +2046,8 @@ var DL_T = {
     outerCode: 'Внешний код короба', phOuterCode: 'Введите внешний код короба',
     filesTitle: 'Файлы поставки', addFilesBtn: '＋ Загрузить файлы поставки', filesHint: 'Можно несколько файлов',
     noFilesYet: 'Файлы поставки не загружены', filesDl: '⬇ Скачать',
+    filesDel: '✕ Удалить', fileDelOk: 'Файл удалён',
+    filesDelConfirm: function(n){ return 'Удалить файл поставки «'+(n||'')+'»? После удаления нужно загрузить заново.'; },
     needOuterCode: 'Заполните внешний код для каждого короба', needFiles: 'Загрузите хотя бы один файл поставки'
   }
 };
@@ -2172,6 +2238,27 @@ function DeliveryTab(props) {
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
     }).catch(function(){ setErr(T.opErr); });
+  }
+
+  // 删除单个送仓文件（仅未完成计划）：删后端记录+物理文件，便于传错后重传
+  function deletePlanFile(planId, fileRec, fromDetail) {
+    var name = fileRec.original_name || fileRec.filename || '';
+    if (!window.confirm(T.filesDelConfirm(name))) return;
+    authFetch(API+'/delivery/plans/'+planId+'/files/'+fileRec.id+'/delete', {method:'POST'})
+      .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
+      .then(function(r){
+        if (r.status === 200 && r.data && r.data.status === 'success') {
+          setOkMsg(T.fileDelOk);
+          if (fromDetail) {
+            setDetail(function(p){ if(!p) return p; var o={}; for(var k in p) o[k]=p[k];
+              o.files=(p.files||[]).filter(function(f){ return f.id !== fileRec.id; }); return o; });
+          } else {
+            setForm(function(p){ if(!p) return p; var o={}; for(var k in p) o[k]=p[k];
+              o.existingFiles=(p.existingFiles||[]).filter(function(f){ return f.id !== fileRec.id; }); return o; });
+          }
+          load();
+        } else { setErr((r.data && r.data.detail) || T.opErr); }
+      }).catch(function(){ setErr(T.netErr); });
   }
 
   // 收集表单 → 提交
@@ -2470,8 +2557,11 @@ function DeliveryTab(props) {
           h('div',{style:{fontWeight:700,fontSize:14,marginBottom:8}}, T.filesTitle, h('span',{style:{color:'#ff4d4f',marginLeft:2}},'*')),
           (form.existingFiles||[]).length ? h('div',{style:{marginBottom:8,display:'flex',flexWrap:'wrap',gap:'6px 14px'}},
             form.existingFiles.map(function(f){
-              return h('span',{key:'ef_'+f.id,style:{fontSize:12,color:'#389e0d',cursor:'pointer'},
-                title:T.filesDl, onClick:function(){ downloadPlanFile(form.id,f); }}, '⬇ '+(f.original_name||f.filename));
+              return h('span',{key:'ef_'+f.id,style:{fontSize:12,display:'inline-flex',alignItems:'center',gap:6,background:'#f6ffed',border:'1px solid #b7eb8f',borderRadius:6,padding:'2px 8px'}},
+                h('span',{style:{color:'#389e0d',cursor:'pointer'},title:T.filesDl,
+                  onClick:function(){ downloadPlanFile(form.id,f); }}, '⬇ '+(f.original_name||f.filename)),
+                h('span',{style:{color:'#ff4d4f',cursor:'pointer',fontWeight:700},title:T.filesDel,
+                  onClick:function(){ deletePlanFile(form.id,f,false); }}, '✕'));
             })
           ) : null,
           (form.newFiles||[]).length ? h('div',{style:{marginBottom:8,display:'flex',flexWrap:'wrap',gap:'6px 14px'}},
@@ -2540,8 +2630,12 @@ function DeliveryTab(props) {
           (detail.files||[]).length
             ? h('div',{style:{display:'flex',flexWrap:'wrap',gap:'6px 16px'}},
                 detail.files.map(function(f){
-                  return h('span',{key:'df_'+f.id,style:{cursor:'pointer',color:'#389e0d',fontSize:13},title:T.filesDl,
-                    onClick:function(){ downloadPlanFile(detail.id, f); }}, '⬇ '+(f.original_name||f.filename));
+                  var _done = (detail.status||'') === '已完成';
+                  return h('span',{key:'df_'+f.id,style:{display:'inline-flex',alignItems:'center',gap:6}},
+                    h('span',{style:{cursor:'pointer',color:'#389e0d',fontSize:13},title:T.filesDl,
+                      onClick:function(){ downloadPlanFile(detail.id, f); }}, '⬇ '+(f.original_name||f.filename)),
+                    _done ? null : h('span',{style:{cursor:'pointer',color:'#ff4d4f',fontSize:13,fontWeight:700},title:T.filesDel,
+                      onClick:function(){ deletePlanFile(detail.id, f, true); }}, '✕'));
                 }))
             : h('div',{style:{fontSize:12,color:'#bbb'}}, T.noFilesYet)
         ),
