@@ -417,6 +417,8 @@ var INV_T = {
     groupHead: function(name,n){ return '🏷️ '+name+'（'+n+' 个编码）'; },
     exportBtn: '📤 导出 Excel', exportErr: '导出失败，请重试',
     colProduct: '产品名', colCode: '编码', colQty: '正品库存', colDefect: '次品库存', colAction: '操作', goodLabel: '正品', defectLabel: '次品', sumLabel: '总数',
+    labelDl: '标签', labelUpload: '上传标签', labelReup: '重新上传', labelUploadTitle: '上传 / 覆盖该产品的标签文件', addLabelFile: '标签文件（可选）', labelNeedName: '请先填写产品名', labelUpOk: '标签已上传', labelUpErr: '上传失败，请重试',
+    labelDel: '删除标签', labelDelConfirm: function(n){ return '确定删除「'+(n||'')+'」的标签文件吗？删除后可重新上传。'; },
     remark: '备注', remarkPh: '选填', addRowBtn: '＋ 添加一行', submitBtn: '提交', delRow: '删除此行',
     dupWarn: '以下产品编码已存在，请检查：', addOk: function(n){ return '✅ 成功添加 '+n+' 个编码'; },
     replenishBtn: '从箱子库存添加正品库存',
@@ -458,6 +460,8 @@ var INV_T = {
     groupHead: function(name,n){ return '🏷️ '+name+' (кодов: '+n+')'; },
     exportBtn: '📤 Экспорт в Excel', exportErr: 'Ошибка экспорта, попробуйте снова',
     colProduct: 'Название', colCode: 'Код', colQty: 'Годный остаток', colDefect: 'Брак', colAction: 'Действие', goodLabel: 'Годный', defectLabel: 'Брак', sumLabel: 'Всего',
+    labelDl: 'Ярлык', labelUpload: 'Загрузить ярлык', labelReup: 'Заменить', labelUploadTitle: 'Загрузить / заменить файл ярлыка этого товара', addLabelFile: 'Файл ярлыка (необязательно)', labelNeedName: 'Сначала введите название товара', labelUpOk: 'Ярлык загружен', labelUpErr: 'Ошибка загрузки, повторите',
+    labelDel: 'Удалить ярлык', labelDelConfirm: function(n){ return 'Удалить файл ярлыка «'+(n||'')+'»? После удаления можно загрузить заново.'; },
     remark: 'Примечание', remarkPh: 'необязательно', addRowBtn: '＋ Добавить строку', submitBtn: 'Отправить', delRow: 'Удалить строку',
     dupWarn: 'Следующие коды уже существуют, проверьте: ', addOk: function(n){ return '✅ Добавлено кодов: '+n; },
     replenishBtn: 'Пополнить годный остаток из короба',
@@ -498,14 +502,55 @@ function InventoryTab(props) {
   var S13 = useState(''), repErr = S13[0], setRepErr = S13[1];
   var S14 = useState(false), repBusy = S14[0], setRepBusy = S14[1];
   var S15 = useState(''), repMsg = S15[0], setRepMsg = S15[1];
+  var S16 = useState({}), labels = S16[0], setLabels = S16[1];        // 产品名 → 标签文件映射
+  var S17 = useState(null), addLabelFile = S17[0], setAddLabelFile = S17[1];  // 添加产品时选中的标签文件
   var scanRef = useRef(null);
 
   function load() {
     authFetch(API+'/inventory/items').then(function(r){return r.json();}).then(function(d){
       if (d && d.items) setItems(d.items);
     }).catch(function(){});
+    authFetch(API+'/inventory/labels').then(function(r){return r.json();}).then(function(d){
+      if (d && d.labels) setLabels(d.labels);
+    }).catch(function(){});
   }
   useEffect(function(){ load(); }, []);
+
+  // 上传/覆盖某产品名的标签文件
+  function uploadLabel(name, file, cb) {
+    if (!name) { if (cb) cb(T.labelNeedName); return; }
+    if (!file) { if (cb) cb(T.labelNeedName); return; }
+    var fd = new FormData(); fd.append('product_name', name); fd.append('file', file);
+    authFetch(API+'/inventory/labels/upload', {method:'POST', body:fd})
+      .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
+      .then(function(r){
+        if (r.status===200 && r.data && r.data.status==='success') { load(); if (cb) cb(null); }
+        else { if (cb) cb((r.data && r.data.detail) || T.labelUpErr); }
+      }).catch(function(){ if (cb) cb(T.netErr); });
+  }
+  // 下载某产品名的标签文件
+  function downloadLabel(name) {
+    authFetch(API+'/inventory/labels/download?product_name='+encodeURIComponent(name))
+      .then(function(r){ if (!r.ok) throw new Error('x'); return r.blob(); })
+      .then(function(blob){
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = (labels[name] && labels[name].original_name) ? labels[name].original_name : (name + '_标签');
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+      }).catch(function(){ alert(T.labelUpErr); });
+  }
+  // 删除某产品名的标签文件（删除后再出现「上传标签」）
+  function deleteLabel(name) {
+    if (!window.confirm(T.labelDelConfirm(name))) return;
+    authFetch(API+'/inventory/labels/delete?product_name='+encodeURIComponent(name), {method:'POST'})
+      .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
+      .then(function(r){
+        if (r.status===200 && r.data && r.data.status==='success') { load(); }
+        else { alert((r.data && r.data.detail) || T.labelUpErr); }
+      }).catch(function(){ alert(T.netErr); });
+  }
 
   // 自动聚焦扫描框；页面任意位置按键都重定向到扫描框（配合扫描枪 HID）
   useEffect(function(){
@@ -559,7 +604,9 @@ function InventoryTab(props) {
       .filter(function(r){ return (r.code || '').trim(); })
       .map(function(r){ return { code: (r.code || '').trim(), quantity: parseInt(r.qty, 10) || 0, remark: (r.remark || '').trim() }; });
     if (!items.length) { setAddErr(T.needCode); return; }
-    authFetch(API+'/inventory/items/batch', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({product_name:(np||'').trim(), items:items})})
+    var pname = (np||'').trim();
+    var lbl = addLabelFile;
+    authFetch(API+'/inventory/items/batch', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({product_name:pname, items:items})})
       .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
       .then(function(r){
         if (r.status !== 200) { setAddErr(r.data.detail || T.failed); return; }
@@ -567,7 +614,9 @@ function InventoryTab(props) {
         setAddOk(T.addOk(r.data.created));
         setNp('');
         setRows([newRow()]);
+        setAddLabelFile(null);
         load();
+        if (lbl && pname) { uploadLabel(pname, lbl, function(err){ if (err) alert(T.labelUpErr + ': ' + err); }); }
       })
       .catch(function(){ setAddErr(T.netErr); });
   }
@@ -710,6 +759,10 @@ function InventoryTab(props) {
           h('button',{className:'btn btn-ghost',style:{marginTop:8,fontSize:13},onClick:addRow},T.addRowBtn)
         ),
         h('div',{style:{marginTop:12,display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}},
+          h('label',{className:'btn btn-ghost',style:{fontSize:13,padding:'6px 12px',cursor:'pointer'},title:T.labelUploadTitle},
+            '🏷 '+T.addLabelFile,
+            h('input',{type:'file',style:{display:'none'},onChange:function(e){ setAddLabelFile((e.target.files&&e.target.files[0])||null); e.target.value=''; }})),
+          addLabelFile ? h('span',{style:{fontSize:12,color:'#0958d9'}},'📎 '+addLabelFile.name) : null,
           h('button',{className:'btn btn-primary',style:{padding:'8px 28px'},onClick:submitBatch},T.submitBtn),
           addOk ? h('span',{style:{color:'#52c41a',fontSize:13,fontWeight:600}},addOk) : null
         ),
@@ -751,11 +804,22 @@ function InventoryTab(props) {
                   var zero = (it.quantity||0) === 0;
                   var cells = [];
                   if (idx === 0) {
+                    var canLabel = k && k !== T.ungrouped;
+                    var hasLbl = !!(labels[k] && labels[k].has);
+                    var labelEl = canLabel ? h('div',{style:{marginTop:6,display:'inline-flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
+                      hasLbl
+                        ? h('span',{style:{fontSize:12,color:'#389e0d',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3},title:T.labelDl,onClick:function(){ downloadLabel(k); }},'⬇ '+T.labelDl)
+                        : h('label',{style:{fontSize:12,color:'#1677ff',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3},title:T.labelUploadTitle},
+                            '🏷 '+T.labelUpload,
+                            h('input',{type:'file',style:{display:'none'},onChange:function(e){ var f=(e.target.files&&e.target.files[0]); if(f){ uploadLabel(k, f, function(err){ if(err) alert(err); }); } e.target.value=''; }})),
+                      hasLbl ? h('span',{style:{fontSize:13,color:'#cf1322',cursor:'pointer',fontWeight:700,lineHeight:1},title:T.labelDel,onClick:function(){ deleteLabel(k); }},'✕') : null
+                    ) : null;
                     cells.push(h('td',{key:'prod',rowSpan:list.length,className:'inv-prod-cell'},
                       h('div',{className:'inv-prod-name'}, k),
                       h('div',{className:'inv-prod-total'}, T.goodLabel+' '+prodTotal),
                       h('div',{className:'inv-prod-defect'}, T.defectLabel+' '+prodDefect),
-                      h('div',{className:'inv-prod-sum'}, T.sumLabel+' '+(prodTotal+prodDefect))
+                      h('div',{className:'inv-prod-sum'}, T.sumLabel+' '+(prodTotal+prodDefect)),
+                      labelEl
                     ));
                   }
                   cells.push(h('td',{key:'code',style:{fontFamily:'monospace',fontSize:14}},

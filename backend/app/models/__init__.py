@@ -169,6 +169,22 @@ class InventoryItem(Base):
     updated_at = Column(DateTime, default=_now, onupdate=_now)
 
 
+class ProductLabel(Base):
+    """产品名（product_name）对应的标签文件。一个产品名一份，可重复上传覆盖。"""
+    __tablename__ = "product_labels"
+    __table_args__ = (
+        UniqueConstraint("store_id", "product_name", name="uq_product_labels_store_name"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    store_id = Column(Integer, index=True, nullable=False, default=1)   # 所属店铺
+    product_name = Column(String(200), index=True, nullable=False)      # 产品名
+    filename = Column(String(500))                                      # 存储文件名
+    original_name = Column(String(500))                                 # 原始文件名
+    created_at = Column(DateTime, default=_now)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
+
+
 class InventoryLog(Base):
     """库存操作日志（发货 / 退货），按天统计与查询。"""
     __tablename__ = "inventory_logs"

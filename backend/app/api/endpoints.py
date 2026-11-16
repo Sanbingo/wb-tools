@@ -12,7 +12,7 @@ import io, os, uuid, glob, tempfile, httpx, unicodedata
 from urllib.parse import quote
 
 from ..database import get_db
-from ..models import Sale, Order, Stock, DailySummary, SyncLog, UploadedReport, User, InventoryItem, InventoryLog, Box, BoxItem, Store, InboundWaybill, InboundItem, DeliveryPlan, DeliveryPlanBox, DeliveryPlanItem, DeliveryPlanFile
+from ..models import Sale, Order, Stock, DailySummary, SyncLog, UploadedReport, User, InventoryItem, InventoryLog, Box, BoxItem, Store, InboundWaybill, InboundItem, DeliveryPlan, DeliveryPlanBox, DeliveryPlanItem, DeliveryPlanFile, ProductLabel
 from ..services.wb_service import WBService
 from ..config import settings
 
@@ -2351,6 +2351,101 @@ async def delete_inventory_item(
         raise HTTPException(status_code=404, detail="库存项不存在")
     await db.delete(item)
     await db.commit()
+    return {"status": "success"}
+
+
+# ── 产品标签文件（上架库存「产品名」列的标签上传/下载，按产品名一份，可覆盖）──
+INVENTORY_LABEL_DIR = "/home/admin/wbtools/backend/uploads/labels/"
+
+
+def _safe_label_path(filename: str) -> str:
+    base = os.path.basename(filename or "")
+    return os.path.join(INVENTORY_LABEL_DIR, base)
+
+
+@router.get("/inventory/labels")
+async def list_product_labels(store_id: int = Query(1), username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """返回本店铺所有产品名的标签文件映射，供上架库存列表显示「下载/上传」入口。"""
+    r = await db.execute(select(ProductLabel).where(ProductLabel.store_id == store_id))
+    out = {}
+    for pl in r.scalars().all():
+        if (pl.product_name or "") and pl.filename:
+            out[pl.product_name] = {"original_name": pl.original_name or pl.filename, "has": True}
+    return {"labels": out}
+
+
+@router.post("/inventory/labels/upload")
+async def upload_product_label(
+    product_name: str = Form(...),
+    file: UploadFile = File(...),
+    store_id: int = Query(1),
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """给某个产品名上传/覆盖标签文件：写新文件、更新记录、删旧物理文件。"""
+    name = (product_name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="产品名不能为空")
+    if not (file and (file.filename or "").strip()):
+        raise HTTPException(status_code=400, detail="请选择文件")
+    os.makedirs(INVENTORY_LABEL_DIR, exist_ok=True)
+    orig = file.filename.strip()
+    stored = f"{uuid.uuid4()}_{orig}"
+    content = await file.read()
+    with open(_safe_label_path(stored), "wb") as f:
+        f.write(content)
+    r = await db.execute(select(ProductLabel).where(ProductLabel.store_id == store_id, ProductLabel.product_name == name))
+    old = r.scalar_one_or_none()
+    old_fn = old.filename if old else None
+    if old:
+        old.filename = stored
+        old.original_name = orig
+    else:
+        db.add(ProductLabel(store_id=store_id, product_name=name, filename=stored, original_name=orig))
+    await db.commit()
+    if old_fn and old_fn != stored:
+        fp = _safe_label_path(old_fn)
+        if os.path.exists(fp):
+            try:
+                os.remove(fp)
+            except Exception:
+                pass
+    return {"status": "success", "original_name": orig}
+
+
+@router.get("/inventory/labels/download")
+async def download_product_label(product_name: str = Query(...), store_id: int = Query(1), username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """下载某个产品名的标签文件。"""
+    name = (product_name or "").strip()
+    r = await db.execute(select(ProductLabel).where(ProductLabel.store_id == store_id, ProductLabel.product_name == name))
+    pl = r.scalar_one_or_none()
+    if not pl or not pl.filename:
+        raise HTTPException(status_code=404, detail="该产品暂无标签文件")
+    fp = _safe_label_path(pl.filename)
+    if not os.path.exists(fp):
+        raise HTTPException(status_code=404, detail="文件已丢失")
+    dl = pl.original_name or pl.filename
+    return FileResponse(fp, filename=dl, headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(dl)}"})
+
+
+@router.post("/inventory/labels/delete")
+async def delete_product_label(product_name: str = Query(...), store_id: int = Query(1), username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """删除某产品名的标签文件（删记录 + 物理文件），删除后可重新上传。"""
+    name = (product_name or "").strip()
+    r = await db.execute(select(ProductLabel).where(ProductLabel.store_id == store_id, ProductLabel.product_name == name))
+    pl = r.scalar_one_or_none()
+    if not pl:
+        raise HTTPException(status_code=404, detail="该产品暂无标签文件")
+    fn = pl.filename or ""
+    await db.delete(pl)
+    await db.commit()
+    if fn:
+        fp = _safe_label_path(fn)
+        if os.path.exists(fp):
+            try:
+                os.remove(fp)
+            except Exception:
+                pass
     return {"status": "success"}
 
 
