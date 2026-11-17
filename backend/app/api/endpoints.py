@@ -12,7 +12,7 @@ import io, os, uuid, glob, tempfile, httpx, unicodedata
 from urllib.parse import quote
 
 from ..database import get_db
-from ..models import Sale, Order, Stock, DailySummary, SyncLog, UploadedReport, User, InventoryItem, InventoryLog, Box, BoxItem, Store, InboundWaybill, InboundItem, DeliveryPlan, DeliveryPlanBox, DeliveryPlanItem, DeliveryPlanFile, ProductLabel
+from ..models import Sale, Order, Stock, DailySummary, SyncLog, UploadedReport, User, InventoryItem, InventoryLog, Box, BoxItem, Store, InboundWaybill, InboundItem, DeliveryPlan, DeliveryPlanBox, DeliveryPlanItem, DeliveryPlanFile, ProductLabel, HonestyLabel
 from ..services.wb_service import WBService
 from ..config import settings
 
@@ -2441,6 +2441,186 @@ async def delete_product_label(product_name: str = Query(...), store_id: int = Q
     await db.commit()
     if fn:
         fp = _safe_label_path(fn)
+        if os.path.exists(fp):
+            try:
+                os.remove(fp)
+            except Exception:
+                pass
+    return {"status": "success"}
+
+
+# ── 诚信标签（上架库存「产品名」列：上传 PDF，一页一个标签，打印一次作废一个）──
+HONESTY_LABEL_DIR = "/home/admin/wbtools/backend/uploads/honesty_labels/"
+HONESTY_MAX_SIZE = 100 * 1024 * 1024   # 100MB
+
+
+def _safe_honesty_path(filename: str) -> str:
+    return os.path.join(HONESTY_LABEL_DIR, os.path.basename(filename or ""))
+
+
+def _pdf_page_count(path: str) -> int:
+    import pymupdf
+    with pymupdf.open(path) as doc:
+        return int(doc.page_count)
+
+
+@router.get("/inventory/honesty-labels")
+async def list_honesty_labels(store_id: int = Query(1), username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """返回本店铺各产品名的诚信标签用量：总数 / 已打印 / 剩余。"""
+    r = await db.execute(select(HonestyLabel).where(HonestyLabel.store_id == store_id))
+    out = {}
+    for hl in r.scalars().all():
+        if not (hl.product_name and hl.filename):
+            continue
+        total = int(hl.total_pages or 0)
+        used = int(hl.used_pages or 0)
+        out[hl.product_name] = {
+            "has": True,
+            "total": total,
+            "used": used,
+            "remaining": max(0, total - used),
+            "original_name": hl.original_name or hl.filename,
+        }
+    return {"labels": out}
+
+
+@router.post("/inventory/honesty-labels/upload")
+async def upload_honesty_label(
+    product_name: str = Form(...),
+    file: UploadFile = File(...),
+    store_id: int = Query(1),
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """上传/重新上传诚信标签 PDF：统计页数（=标签数），重置已打印计数，删除旧文件。"""
+    name = (product_name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="产品名不能为空")
+    orig = (file.filename or "").strip()
+    if not orig:
+        raise HTTPException(status_code=400, detail="请选择 PDF 文件")
+    if not orig.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="只支持 PDF 文件")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="文件为空")
+    if len(content) > HONESTY_MAX_SIZE:
+        raise HTTPException(status_code=400, detail="文件过大（上限 100MB）")
+
+    os.makedirs(HONESTY_LABEL_DIR, exist_ok=True)
+    stored = f"{uuid.uuid4().hex}_{orig}"
+    fp = _safe_honesty_path(stored)
+    with open(fp, "wb") as f:
+        f.write(content)
+
+    try:
+        pages = _pdf_page_count(fp)
+    except Exception:
+        try:
+            os.remove(fp)
+        except Exception:
+            pass
+        raise HTTPException(status_code=400, detail="PDF 无法解析，请检查文件")
+    if pages <= 0:
+        try:
+            os.remove(fp)
+        except Exception:
+            pass
+        raise HTTPException(status_code=400, detail="PDF 没有可打印的页面")
+
+    r = await db.execute(select(HonestyLabel).where(HonestyLabel.store_id == store_id, HonestyLabel.product_name == name))
+    row = r.scalar_one_or_none()
+    old_fn = row.filename if row else None
+    if row:
+        row.filename = stored
+        row.original_name = orig
+        row.total_pages = pages
+        row.used_pages = 0
+    else:
+        db.add(HonestyLabel(store_id=store_id, product_name=name, filename=stored,
+                            original_name=orig, total_pages=pages, used_pages=0))
+    await db.commit()
+    if old_fn and old_fn != stored:
+        op = _safe_honesty_path(old_fn)
+        if os.path.exists(op):
+            try:
+                os.remove(op)
+            except Exception:
+                pass
+    return {"status": "success", "total": pages, "used": 0, "remaining": pages, "original_name": orig}
+
+
+@router.get("/inventory/honesty-labels/print")
+async def print_honesty_label(
+    product_name: str = Query(...),
+    store_id: int = Query(1),
+    username: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """取下一张未使用的标签（第 used+1 页），渲染成 PNG 返回，并把该标签标记为已作废。"""
+    name = (product_name or "").strip()
+    r = await db.execute(select(HonestyLabel).where(HonestyLabel.store_id == store_id, HonestyLabel.product_name == name))
+    row = r.scalar_one_or_none()
+    if not row or not row.filename:
+        raise HTTPException(status_code=404, detail="该产品暂无诚信标签，请先上传 PDF")
+
+    total = int(row.total_pages or 0)
+    used = int(row.used_pages or 0)
+    if total <= 0:
+        raise HTTPException(status_code=400, detail="诚信标签已用完，请重新上传新的 PDF 文件")
+    if used >= total:
+        raise HTTPException(status_code=400, detail="诚信标签已用完，请重新上传新的 PDF 文件")
+
+    fp = _safe_honesty_path(row.filename)
+    if not os.path.exists(fp):
+        raise HTTPException(status_code=404, detail="标签文件已丢失，请重新上传")
+
+    page_no = used + 1
+    try:
+        import pymupdf
+        with pymupdf.open(fp) as doc:
+            if page_no > doc.page_count:
+                row.total_pages = doc.page_count
+                await db.commit()
+                raise HTTPException(status_code=400, detail="标签已用完，请重新上传新的 PDF 文件")
+            pix = doc.load_page(used).get_pixmap(dpi=300)
+            png = pix.tobytes("png")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=500, detail="标签渲染失败，请重试")
+
+    # 打印即作废：该标签消耗掉
+    row.used_pages = page_no
+    await db.commit()
+    remaining = max(0, total - page_no)
+    return StreamingResponse(
+        io.BytesIO(png),
+        media_type="image/png",
+        headers={
+            "X-Label-Total": str(total),
+            "X-Label-Used": str(page_no),
+            "X-Label-Remaining": str(remaining),
+            "X-Label-Index": str(page_no),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.post("/inventory/honesty-labels/delete")
+async def delete_honesty_label(product_name: str = Query(...), store_id: int = Query(1), username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """删除某产品名的诚信标签（删记录 + 物理文件），删除后可重新上传。"""
+    name = (product_name or "").strip()
+    r = await db.execute(select(HonestyLabel).where(HonestyLabel.store_id == store_id, HonestyLabel.product_name == name))
+    row = r.scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="该产品暂无诚信标签")
+    fn = row.filename or ""
+    await db.delete(row)
+    await db.commit()
+    if fn:
+        fp = _safe_honesty_path(fn)
         if os.path.exists(fp):
             try:
                 os.remove(fp)

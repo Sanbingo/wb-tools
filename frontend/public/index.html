@@ -419,6 +419,11 @@ var INV_T = {
     colProduct: '产品名', colCode: '编码', colQty: '正品库存', colDefect: '次品库存', colAction: '操作', goodLabel: '正品', defectLabel: '次品', sumLabel: '总数',
     labelDl: '标签', labelUpload: '上传标签', labelReup: '重新上传', labelUploadTitle: '上传 / 覆盖该产品的标签文件', addLabelFile: '标签文件（可选）', labelNeedName: '请先填写产品名', labelUpOk: '标签已上传', labelUpErr: '上传失败，请重试',
     labelDel: '删除标签', labelDelConfirm: function(n){ return '确定删除「'+(n||'')+'」的标签文件吗？删除后可重新上传。'; },
+    honestyUpload: '上传诚信标签', honestyUploadTitle: '上传诚信标签 PDF（一页 = 一个标签）', honestyPrint: '打印诚信标签',
+    honestyRemain: function(r,t){ return '剩余 '+r+'/'+t; }, honestyNone: '标签已用完', honestyReup: '重新上传诚信标签',
+    honestyUpOk: function(n){ return '✅ 诚信标签已上传，共 '+n+' 个'; }, honestyNeedPdf: '请选择 PDF 文件', honestyPdfOnly: '只支持 PDF 文件',
+    honestyDel: '删除诚信标签', honestyDelConfirm: function(n){ return '确定删除「'+(n||'')+'」的诚信标签吗？删除后可重新上传。'; },
+    honestyPrintErr: '打印失败，请重试',
     remark: '备注', remarkPh: '选填', addRowBtn: '＋ 添加一行', submitBtn: '提交', delRow: '删除此行',
     dupWarn: '以下产品编码已存在，请检查：', addOk: function(n){ return '✅ 成功添加 '+n+' 个编码'; },
     replenishBtn: '从箱子库存添加正品库存',
@@ -462,6 +467,11 @@ var INV_T = {
     colProduct: 'Название', colCode: 'Код', colQty: 'Годный остаток', colDefect: 'Брак', colAction: 'Действие', goodLabel: 'Годный', defectLabel: 'Брак', sumLabel: 'Всего',
     labelDl: 'Ярлык', labelUpload: 'Загрузить ярлык', labelReup: 'Заменить', labelUploadTitle: 'Загрузить / заменить файл ярлыка этого товара', addLabelFile: 'Файл ярлыка (необязательно)', labelNeedName: 'Сначала введите название товара', labelUpOk: 'Ярлык загружен', labelUpErr: 'Ошибка загрузки, повторите',
     labelDel: 'Удалить ярлык', labelDelConfirm: function(n){ return 'Удалить файл ярлыка «'+(n||'')+'»? После удаления можно загрузить заново.'; },
+    honestyUpload: 'Загрузить этикетки ЧЗ', honestyUploadTitle: 'Загрузить PDF этикеток (1 страница = 1 этикетка)', honestyPrint: 'Печать этикетки ЧЗ',
+    honestyRemain: function(r,t){ return 'осталось '+r+'/'+t; }, honestyNone: 'Этикетки закончились', honestyReup: 'Загрузить новые этикетки',
+    honestyUpOk: function(n){ return '✅ Этикетки загружены, всего '+n; }, honestyNeedPdf: 'Выберите PDF файл', honestyPdfOnly: 'Только PDF файлы',
+    honestyDel: 'Удалить этикетки ЧЗ', honestyDelConfirm: function(n){ return 'Удалить этикетки ЧЗ «'+(n||'')+'»? После удаления можно загрузить заново.'; },
+    honestyPrintErr: 'Ошибка печати, попробуйте снова',
     remark: 'Примечание', remarkPh: 'необязательно', addRowBtn: '＋ Добавить строку', submitBtn: 'Отправить', delRow: 'Удалить строку',
     dupWarn: 'Следующие коды уже существуют, проверьте: ', addOk: function(n){ return '✅ Добавлено кодов: '+n; },
     replenishBtn: 'Пополнить годный остаток из короба',
@@ -504,6 +514,7 @@ function InventoryTab(props) {
   var S15 = useState(''), repMsg = S15[0], setRepMsg = S15[1];
   var S16 = useState({}), labels = S16[0], setLabels = S16[1];        // 产品名 → 标签文件映射
   var S17 = useState(null), addLabelFile = S17[0], setAddLabelFile = S17[1];  // 添加产品时选中的标签文件
+  var S18 = useState({}), honesty = S18[0], setHonesty = S18[1];       // 产品名 → 诚信标签用量
   var scanRef = useRef(null);
 
   function load() {
@@ -512,6 +523,9 @@ function InventoryTab(props) {
     }).catch(function(){});
     authFetch(API+'/inventory/labels').then(function(r){return r.json();}).then(function(d){
       if (d && d.labels) setLabels(d.labels);
+    }).catch(function(){});
+    authFetch(API+'/inventory/honesty-labels').then(function(r){return r.json();}).then(function(d){
+      if (d && d.labels) setHonesty(d.labels);
     }).catch(function(){});
   }
   useEffect(function(){ load(); }, []);
@@ -545,6 +559,63 @@ function InventoryTab(props) {
   function deleteLabel(name) {
     if (!window.confirm(T.labelDelConfirm(name))) return;
     authFetch(API+'/inventory/labels/delete?product_name='+encodeURIComponent(name), {method:'POST'})
+      .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
+      .then(function(r){
+        if (r.status===200 && r.data && r.data.status==='success') { load(); }
+        else { alert((r.data && r.data.detail) || T.labelUpErr); }
+      }).catch(function(){ alert(T.netErr); });
+  }
+
+  // ── 诚信标签：上传 PDF / 打印一张（打印即作废）/ 删除 ──
+  function uploadHonesty(name, file, cb) {
+    if (!name) { if (cb) cb(T.labelNeedName); return; }
+    if (!file) { if (cb) cb(T.honestyNeedPdf); return; }
+    if (!/\.pdf$/i.test(file.name || '')) { if (cb) cb(T.honestyPdfOnly); return; }
+    var fd = new FormData(); fd.append('product_name', name); fd.append('file', file);
+    authFetch(API+'/inventory/honesty-labels/upload', {method:'POST', body:fd})
+      .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
+      .then(function(r){
+        if (r.status===200 && r.data && r.data.status==='success') { load(); if (cb) cb(null, r.data.total); }
+        else { if (cb) cb((r.data && r.data.detail) || T.labelUpErr); }
+      }).catch(function(){ if (cb) cb(T.netErr); });
+  }
+
+  function printHonesty(name) {
+    var st = honesty[name];
+    if (st && st.remaining <= 0) { alert(T.honestyNone + '，' + T.honestyReup); return; }
+    authFetch(API+'/inventory/honesty-labels/print?product_name='+encodeURIComponent(name))
+      .then(function(r){
+        if (!r.ok) {
+          return r.json().then(function(d){ throw new Error((d && d.detail) || T.honestyPrintErr); });
+        }
+        var hd = {total: r.headers.get('X-Label-Total'), remaining: r.headers.get('X-Label-Remaining'), index: r.headers.get('X-Label-Index')};
+        return r.blob().then(function(b){ return {blob:b, hd:hd}; });
+      })
+      .then(function(res){
+        var url = URL.createObjectURL(res.blob);
+        var w = window.open('', '_blank');
+        if (!w) { alert(T.honestyPrintErr); URL.revokeObjectURL(url); return; }
+        w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'+name+'</title>'+
+          '<style>@page{size:auto;margin:0;}html,body{margin:0;padding:0;}img{display:block;}</style></head>'+
+          '<body><img id="lbl" src="'+url+'"></body></html>');
+        w.document.close();
+        var img = w.document.getElementById('lbl');
+        var done = false;
+        function fire(){ if (done) return; done = true; try { w.focus(); w.print(); } catch(e){} }
+        function ready(){
+          try { if (img.naturalWidth) img.style.width = (img.naturalWidth / 300 * 25.4).toFixed(2) + 'mm'; } catch(e){}
+          setTimeout(fire, 150);
+        }
+        img.onload = ready;
+        setTimeout(ready, 1500);
+        load();   // 剩余数刷新（该标签已作废）
+      })
+      .catch(function(e){ alert((e && e.message) || T.honestyPrintErr); });
+  }
+
+  function deleteHonesty(name) {
+    if (!window.confirm(T.honestyDelConfirm(name))) return;
+    authFetch(API+'/inventory/honesty-labels/delete?product_name='+encodeURIComponent(name), {method:'POST'})
       .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
       .then(function(r){
         if (r.status===200 && r.data && r.data.status==='success') { load(); }
@@ -814,12 +885,25 @@ function InventoryTab(props) {
                             h('input',{type:'file',style:{display:'none'},onChange:function(e){ var f=(e.target.files&&e.target.files[0]); if(f){ uploadLabel(k, f, function(err){ if(err) alert(err); }); } e.target.value=''; }})),
                       hasLbl ? h('span',{style:{fontSize:13,color:'#cf1322',cursor:'pointer',fontWeight:700,lineHeight:1},title:T.labelDel,onClick:function(){ deleteLabel(k); }},'✕') : null
                     ) : null;
+                    var hl = honesty[k];
+                    var hlHas = !!(hl && hl.has);
+                    var hlLeft = hlHas ? (hl.remaining || 0) : 0;
+                    var honestyEl = canLabel ? h('div',{style:{marginTop:4,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
+                      (hlHas && hlLeft > 0)
+                        ? h('span',{style:{fontSize:12,color:'#722ed1',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3},title:T.honestyPrint,onClick:function(){ printHonesty(k); }},
+                            '🖨 '+T.honestyPrint+'（'+T.honestyRemain(hlLeft, hl.total)+'）')
+                        : h('label',{style:{fontSize:12,color:hlHas?'#cf1322':'#722ed1',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3},title:T.honestyUploadTitle},
+                            '🏷 '+(hlHas ? (T.honestyNone+'，'+T.honestyReup) : T.honestyUpload),
+                            h('input',{type:'file',accept:'.pdf,application/pdf',style:{display:'none'},onChange:function(e){ var f=(e.target.files&&e.target.files[0]); if(f){ uploadHonesty(k, f, function(err, n){ alert(err ? err : T.honestyUpOk(n)); }); } e.target.value=''; }})),
+                      hlHas ? h('span',{style:{fontSize:13,color:'#cf1322',cursor:'pointer',fontWeight:700,lineHeight:1},title:T.honestyDel,onClick:function(){ deleteHonesty(k); }},'✕') : null
+                    ) : null;
                     cells.push(h('td',{key:'prod',rowSpan:list.length,className:'inv-prod-cell'},
                       h('div',{className:'inv-prod-name'}, k),
                       h('div',{className:'inv-prod-total'}, T.goodLabel+' '+prodTotal),
                       h('div',{className:'inv-prod-defect'}, T.defectLabel+' '+prodDefect),
                       h('div',{className:'inv-prod-sum'}, T.sumLabel+' '+(prodTotal+prodDefect)),
-                      labelEl
+                      labelEl,
+                      honestyEl
                     ));
                   }
                   cells.push(h('td',{key:'code',style:{fontFamily:'monospace',fontSize:14}},
