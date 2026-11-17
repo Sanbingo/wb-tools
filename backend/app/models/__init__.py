@@ -170,15 +170,16 @@ class InventoryItem(Base):
 
 
 class ProductLabel(Base):
-    """产品名（product_name）对应的标签文件。一个产品名一份，可重复上传覆盖。"""
+    """编码（code）对应的标签文件。一个编码一份，可重复上传覆盖。"""
     __tablename__ = "product_labels"
     __table_args__ = (
-        UniqueConstraint("store_id", "product_name", name="uq_product_labels_store_name"),
+        UniqueConstraint("store_id", "code", name="uq_product_labels_store_code"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     store_id = Column(Integer, index=True, nullable=False, default=1)   # 所属店铺
-    product_name = Column(String(200), index=True, nullable=False)      # 产品名
+    code = Column(String(200), index=True, nullable=False)              # 编码（标签维度）
+    product_name = Column(String(200), index=True)                      # 产品名（冗余，仅便于识别）
     filename = Column(String(500))                                      # 存储文件名
     original_name = Column(String(500))                                 # 原始文件名
     created_at = Column(DateTime, default=_now)
@@ -186,15 +187,16 @@ class ProductLabel(Base):
 
 
 class HonestyLabel(Base):
-    """诚信标签 PDF：一页一个标签，打印一次消耗一个（作废）。一个产品名一份，可重新上传。"""
+    """诚信标签 PDF：一页一个标签，打印一次消耗一个（作废）。一个编码一份，可重新上传。"""
     __tablename__ = "honesty_labels"
     __table_args__ = (
-        UniqueConstraint("store_id", "product_name", name="uq_honesty_labels_store_name"),
+        UniqueConstraint("store_id", "code", name="uq_honesty_labels_store_code"),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     store_id = Column(Integer, index=True, nullable=False, default=1)    # 所属店铺
-    product_name = Column(String(200), index=True, nullable=False)       # 产品名
+    code = Column(String(200), index=True, nullable=False)               # 编码（诚信标签维度）
+    product_name = Column(String(200), index=True)                       # 产品名（冗余，仅便于识别）
     filename = Column(String(500))                                       # 存储文件名
     original_name = Column(String(500))                                  # 原始文件名
     total_pages = Column(Integer, default=0)                             # 总标签数（页数）

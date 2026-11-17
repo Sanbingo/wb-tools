@@ -98,6 +98,8 @@
     .inv-prod-zero { font-size: 11px; color: #cf1322; margin-top: 2px; }
     .inv-prod-defect { font-size: 11px; color: #d46b08; margin-top: 2px; }
     .inv-prod-sum { font-size: 11px; color: #666; margin-top: 2px; }
+    .inv-code-lbl { margin-top: 6px; display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .inv-code-honesty { margin-top: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     /* 款式库存汇总看板 */
     .style-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
     .style-tile { border: 1px solid #eef0f3; border-radius: 10px; padding: 12px 14px; background: #fafcff; }
@@ -417,7 +419,7 @@ var INV_T = {
     groupHead: function(name,n){ return '🏷️ '+name+'（'+n+' 个编码）'; },
     exportBtn: '📤 导出 Excel', exportErr: '导出失败，请重试',
     colProduct: '产品名', colCode: '编码', colQty: '正品库存', colDefect: '次品库存', colAction: '操作', goodLabel: '正品', defectLabel: '次品', sumLabel: '总数',
-    labelDl: '标签', labelUpload: '上传标签', labelReup: '重新上传', labelUploadTitle: '上传 / 覆盖该产品的标签文件', addLabelFile: '标签文件（可选）', labelNeedName: '请先填写产品名', labelUpOk: '标签已上传', labelUpErr: '上传失败，请重试',
+    labelDl: '标签', labelUpload: '上传标签', labelReup: '重新上传', labelUploadTitle: '上传 / 覆盖该编码的标签文件', addLabelFile: '标签文件（可选）', labelNeedName: '请先填写产品名', labelNeedCode: '请先填写编码，再上传标签', labelMultiWarn: '一批添加多个编码时无法共用标签文件，请在列表里按编码分别上传', labelUpOk: '标签已上传', labelUpErr: '上传失败，请重试',
     labelDel: '删除标签', labelDelConfirm: function(n){ return '确定删除「'+(n||'')+'」的标签文件吗？删除后可重新上传。'; },
     honestyUpload: '上传诚信标签', honestyUploadTitle: '上传诚信标签 PDF（一页 = 一个标签）', honestyPrint: '打印诚信标签',
     honestyRemain: function(r,t){ return '剩余 '+r+'/'+t; }, honestyNone: '标签已用完', honestyReup: '重新上传诚信标签',
@@ -465,7 +467,7 @@ var INV_T = {
     groupHead: function(name,n){ return '🏷️ '+name+' (кодов: '+n+')'; },
     exportBtn: '📤 Экспорт в Excel', exportErr: 'Ошибка экспорта, попробуйте снова',
     colProduct: 'Название', colCode: 'Код', colQty: 'Годный остаток', colDefect: 'Брак', colAction: 'Действие', goodLabel: 'Годный', defectLabel: 'Брак', sumLabel: 'Всего',
-    labelDl: 'Ярлык', labelUpload: 'Загрузить ярлык', labelReup: 'Заменить', labelUploadTitle: 'Загрузить / заменить файл ярлыка этого товара', addLabelFile: 'Файл ярлыка (необязательно)', labelNeedName: 'Сначала введите название товара', labelUpOk: 'Ярлык загружен', labelUpErr: 'Ошибка загрузки, повторите',
+    labelDl: 'Ярлык', labelUpload: 'Загрузить ярлык', labelReup: 'Заменить', labelUploadTitle: 'Загрузить / заменить файл ярлыка этого кода', addLabelFile: 'Файл ярлыка (необязательно)', labelNeedName: 'Сначала введите название товара', labelNeedCode: 'Сначала введите код товара', labelMultiWarn: 'Один файл ярлыка нельзя применить к нескольким кодам — загрузите ярлыки по кодам в списке', labelUpOk: 'Ярлык загружен', labelUpErr: 'Ошибка загрузки, повторите',
     labelDel: 'Удалить ярлык', labelDelConfirm: function(n){ return 'Удалить файл ярлыка «'+(n||'')+'»? После удаления можно загрузить заново.'; },
     honestyUpload: 'Загрузить этикетки ЧЗ', honestyUploadTitle: 'Загрузить PDF этикеток (1 страница = 1 этикетка)', honestyPrint: 'Печать этикетки ЧЗ',
     honestyRemain: function(r,t){ return 'осталось '+r+'/'+t; }, honestyNone: 'Этикетки закончились', honestyReup: 'Загрузить новые этикетки',
@@ -530,11 +532,11 @@ function InventoryTab(props) {
   }
   useEffect(function(){ load(); }, []);
 
-  // 上传/覆盖某产品名的标签文件
-  function uploadLabel(name, file, cb) {
-    if (!name) { if (cb) cb(T.labelNeedName); return; }
-    if (!file) { if (cb) cb(T.labelNeedName); return; }
-    var fd = new FormData(); fd.append('product_name', name); fd.append('file', file);
+  // 上传/覆盖某编码的标签文件
+  function uploadLabel(code, productName, file, cb) {
+    if (!code) { if (cb) cb(T.labelNeedCode); return; }
+    if (!file) { if (cb) cb(T.labelNeedCode); return; }
+    var fd = new FormData(); fd.append('code', code); fd.append('product_name', productName || ''); fd.append('file', file);
     authFetch(API+'/inventory/labels/upload', {method:'POST', body:fd})
       .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
       .then(function(r){
@@ -542,23 +544,23 @@ function InventoryTab(props) {
         else { if (cb) cb((r.data && r.data.detail) || T.labelUpErr); }
       }).catch(function(){ if (cb) cb(T.netErr); });
   }
-  // 下载某产品名的标签文件
-  function downloadLabel(name) {
-    authFetch(API+'/inventory/labels/download?product_name='+encodeURIComponent(name))
+  // 下载某编码的标签文件
+  function downloadLabel(code) {
+    authFetch(API+'/inventory/labels/download?code='+encodeURIComponent(code))
       .then(function(r){ if (!r.ok) throw new Error('x'); return r.blob(); })
       .then(function(blob){
         var url = URL.createObjectURL(blob);
         var a = document.createElement('a');
         a.href = url;
-        a.download = (labels[name] && labels[name].original_name) ? labels[name].original_name : (name + '_标签');
+        a.download = (labels[code] && labels[code].original_name) ? labels[code].original_name : (code + '_标签');
         document.body.appendChild(a); a.click(); document.body.removeChild(a);
         setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
       }).catch(function(){ alert(T.labelUpErr); });
   }
-  // 删除某产品名的标签文件（删除后再出现「上传标签」）
-  function deleteLabel(name) {
-    if (!window.confirm(T.labelDelConfirm(name))) return;
-    authFetch(API+'/inventory/labels/delete?product_name='+encodeURIComponent(name), {method:'POST'})
+  // 删除某编码的标签文件（删除后再出现「上传标签」）
+  function deleteLabel(code) {
+    if (!window.confirm(T.labelDelConfirm(code))) return;
+    authFetch(API+'/inventory/labels/delete?code='+encodeURIComponent(code), {method:'POST'})
       .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
       .then(function(r){
         if (r.status===200 && r.data && r.data.status==='success') { load(); }
@@ -566,12 +568,12 @@ function InventoryTab(props) {
       }).catch(function(){ alert(T.netErr); });
   }
 
-  // ── 诚信标签：上传 PDF / 打印一张（打印即作废）/ 删除 ──
-  function uploadHonesty(name, file, cb) {
-    if (!name) { if (cb) cb(T.labelNeedName); return; }
+  // ── 诚信标签：上传 PDF / 打印一张（打印即作废）/ 删除（均按编码）──
+  function uploadHonesty(code, productName, file, cb) {
+    if (!code) { if (cb) cb(T.labelNeedCode); return; }
     if (!file) { if (cb) cb(T.honestyNeedPdf); return; }
     if (!/\.pdf$/i.test(file.name || '')) { if (cb) cb(T.honestyPdfOnly); return; }
-    var fd = new FormData(); fd.append('product_name', name); fd.append('file', file);
+    var fd = new FormData(); fd.append('code', code); fd.append('product_name', productName || ''); fd.append('file', file);
     authFetch(API+'/inventory/honesty-labels/upload', {method:'POST', body:fd})
       .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
       .then(function(r){
@@ -580,10 +582,10 @@ function InventoryTab(props) {
       }).catch(function(){ if (cb) cb(T.netErr); });
   }
 
-  function printHonesty(name) {
-    var st = honesty[name];
+  function printHonesty(code) {
+    var st = honesty[code];
     if (st && st.remaining <= 0) { alert(T.honestyNone + '，' + T.honestyReup); return; }
-    authFetch(API+'/inventory/honesty-labels/print?product_name='+encodeURIComponent(name))
+    authFetch(API+'/inventory/honesty-labels/print?code='+encodeURIComponent(code))
       .then(function(r){
         if (!r.ok) {
           return r.json().then(function(d){ throw new Error((d && d.detail) || T.honestyPrintErr); });
@@ -595,7 +597,7 @@ function InventoryTab(props) {
         var url = URL.createObjectURL(res.blob);
         var w = window.open('', '_blank');
         if (!w) { alert(T.honestyPrintErr); URL.revokeObjectURL(url); return; }
-        w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'+name+'</title>'+
+        w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'+code+'</title>'+
           '<style>@page{size:auto;margin:0;}html,body{margin:0;padding:0;}img{display:block;}</style></head>'+
           '<body><img id="lbl" src="'+url+'"></body></html>');
         w.document.close();
@@ -613,9 +615,9 @@ function InventoryTab(props) {
       .catch(function(e){ alert((e && e.message) || T.honestyPrintErr); });
   }
 
-  function deleteHonesty(name) {
-    if (!window.confirm(T.honestyDelConfirm(name))) return;
-    authFetch(API+'/inventory/honesty-labels/delete?product_name='+encodeURIComponent(name), {method:'POST'})
+  function deleteHonesty(code) {
+    if (!window.confirm(T.honestyDelConfirm(code))) return;
+    authFetch(API+'/inventory/honesty-labels/delete?code='+encodeURIComponent(code), {method:'POST'})
       .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
       .then(function(r){
         if (r.status===200 && r.data && r.data.status==='success') { load(); }
@@ -687,7 +689,14 @@ function InventoryTab(props) {
         setRows([newRow()]);
         setAddLabelFile(null);
         load();
-        if (lbl && pname) { uploadLabel(pname, lbl, function(err){ if (err) alert(T.labelUpErr + ': ' + err); }); }
+        if (lbl) {
+          var codes = items.map(function(x){ return (x.code || '').trim(); }).filter(Boolean);
+          if (codes.length === 1) {
+            uploadLabel(codes[0], pname, lbl, function(err){ if (err) alert(T.labelUpErr + ': ' + err); });
+          } else if (codes.length > 1) {
+            alert(T.labelMultiWarn);
+          }
+        }
       })
       .catch(function(){ setAddErr(T.netErr); });
   }
@@ -875,40 +884,42 @@ function InventoryTab(props) {
                   var zero = (it.quantity||0) === 0;
                   var cells = [];
                   if (idx === 0) {
-                    var canLabel = k && k !== T.ungrouped;
-                    var hasLbl = !!(labels[k] && labels[k].has);
-                    var labelEl = canLabel ? h('div',{style:{marginTop:6,display:'inline-flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
-                      hasLbl
-                        ? h('span',{style:{fontSize:12,color:'#389e0d',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3},title:T.labelDl,onClick:function(){ downloadLabel(k); }},'⬇ '+T.labelDl)
-                        : h('label',{style:{fontSize:12,color:'#1677ff',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3},title:T.labelUploadTitle},
-                            '🏷 '+T.labelUpload,
-                            h('input',{type:'file',style:{display:'none'},onChange:function(e){ var f=(e.target.files&&e.target.files[0]); if(f){ uploadLabel(k, f, function(err){ if(err) alert(err); }); } e.target.value=''; }})),
-                      hasLbl ? h('span',{style:{fontSize:13,color:'#cf1322',cursor:'pointer',fontWeight:700,lineHeight:1},title:T.labelDel,onClick:function(){ deleteLabel(k); }},'✕') : null
-                    ) : null;
-                    var hl = honesty[k];
-                    var hlHas = !!(hl && hl.has);
-                    var hlLeft = hlHas ? (hl.remaining || 0) : 0;
-                    var honestyEl = canLabel ? h('div',{style:{marginTop:4,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}},
-                      (hlHas && hlLeft > 0)
-                        ? h('span',{style:{fontSize:12,color:'#722ed1',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3},title:T.honestyPrint,onClick:function(){ printHonesty(k); }},
-                            '🖨 '+T.honestyPrint+'（'+T.honestyRemain(hlLeft, hl.total)+'）')
-                        : h('label',{style:{fontSize:12,color:hlHas?'#cf1322':'#722ed1',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3},title:T.honestyUploadTitle},
-                            '🏷 '+(hlHas ? (T.honestyNone+'，'+T.honestyReup) : T.honestyUpload),
-                            h('input',{type:'file',accept:'.pdf,application/pdf',style:{display:'none'},onChange:function(e){ var f=(e.target.files&&e.target.files[0]); if(f){ uploadHonesty(k, f, function(err, n){ alert(err ? err : T.honestyUpOk(n)); }); } e.target.value=''; }})),
-                      hlHas ? h('span',{style:{fontSize:13,color:'#cf1322',cursor:'pointer',fontWeight:700,lineHeight:1},title:T.honestyDel,onClick:function(){ deleteHonesty(k); }},'✕') : null
-                    ) : null;
                     cells.push(h('td',{key:'prod',rowSpan:list.length,className:'inv-prod-cell'},
                       h('div',{className:'inv-prod-name'}, k),
                       h('div',{className:'inv-prod-total'}, T.goodLabel+' '+prodTotal),
                       h('div',{className:'inv-prod-defect'}, T.defectLabel+' '+prodDefect),
-                      h('div',{className:'inv-prod-sum'}, T.sumLabel+' '+(prodTotal+prodDefect)),
-                      labelEl,
-                      honestyEl
+                      h('div',{className:'inv-prod-sum'}, T.sumLabel+' '+(prodTotal+prodDefect))
                     ));
                   }
+                  // 标签 / 诚信标签：按编码维度（每个编码各一份）
+                  var codeKey = (it.code || '').trim();
+                  var hasLbl = !!(codeKey && labels[codeKey] && labels[codeKey].has);
+                  var labelEl = codeKey ? h('div',{className:'inv-code-lbl'},
+                    hasLbl
+                      ? h('span',{style:{fontSize:12,color:'#389e0d',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3},title:T.labelDl,onClick:function(){ downloadLabel(codeKey); }},'⬇ '+T.labelDl)
+                      : h('label',{style:{fontSize:12,color:'#1677ff',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3},title:T.labelUploadTitle},
+                          '🏷 '+T.labelUpload,
+                          h('input',{type:'file',style:{display:'none'},onChange:function(e){ var f=(e.target.files&&e.target.files[0]); if(f){ uploadLabel(codeKey, k, f, function(err){ if(err) alert(err); }); } e.target.value=''; }})),
+                    hasLbl ? h('span',{style:{fontSize:13,color:'#cf1322',cursor:'pointer',fontWeight:700,lineHeight:1},title:T.labelDel,onClick:function(){ deleteLabel(codeKey); }},'✕') : null
+                  ) : null;
+                  var hl = codeKey ? honesty[codeKey] : null;
+                  var hlHas = !!(hl && hl.has);
+                  var hlLeft = hlHas ? (hl.remaining || 0) : 0;
+                  var honestyEl = codeKey ? h('div',{className:'inv-code-honesty'},
+                    (hlHas && hlLeft > 0)
+                      ? h('span',{style:{fontSize:12,color:'#722ed1',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3},title:T.honestyPrint,onClick:function(){ printHonesty(codeKey); }},
+                          '🖨 '+T.honestyPrint+'（'+T.honestyRemain(hlLeft, hl.total)+'）')
+                      : h('label',{style:{fontSize:12,color:hlHas?'#cf1322':'#722ed1',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3},title:T.honestyUploadTitle},
+                          '🏷 '+(hlHas ? (T.honestyNone+'，'+T.honestyReup) : T.honestyUpload),
+                          h('input',{type:'file',accept:'.pdf,application/pdf',style:{display:'none'},onChange:function(e){ var f=(e.target.files&&e.target.files[0]); if(f){ uploadHonesty(codeKey, k, f, function(err, n){ alert(err ? err : T.honestyUpOk(n)); }); } e.target.value=''; }})),
+                    hlHas ? h('span',{style:{fontSize:13,color:'#cf1322',cursor:'pointer',fontWeight:700,lineHeight:1},title:T.honestyDel,onClick:function(){ deleteHonesty(codeKey); }},'✕') : null
+                  ) : null;
                   cells.push(h('td',{key:'code',style:{fontFamily:'monospace',fontSize:14}},
-                    h('span',null, it.code),
-                    h('span',{className:'inv-add',title:T.replenishBtn,onClick:function(){ openReplenish(it); }},'+')));
+                    h('div',null,
+                      h('span',null, it.code),
+                      h('span',{className:'inv-add',title:T.replenishBtn,onClick:function(){ openReplenish(it); }},'+')),
+                    labelEl,
+                    honestyEl));
                   cells.push(h('td',{key:'qty'},
                     h('div',{className:'inv-qty-wrap'},
                       h('input',{key:it.id+'-'+it.quantity,className:'inv-qty-input',type:'number',min:0,defaultValue:it.quantity,

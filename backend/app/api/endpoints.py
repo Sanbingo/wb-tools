@@ -2354,7 +2354,7 @@ async def delete_inventory_item(
     return {"status": "success"}
 
 
-# ── 产品标签文件（上架库存「产品名」列的标签上传/下载，按产品名一份，可覆盖）──
+# ── 产品标签文件（上架库存「编码」列的标签上传/下载，按编码一份，可覆盖）──
 INVENTORY_LABEL_DIR = "/home/admin/wbtools/backend/uploads/labels/"
 
 
@@ -2365,43 +2365,47 @@ def _safe_label_path(filename: str) -> str:
 
 @router.get("/inventory/labels")
 async def list_product_labels(store_id: int = Query(1), username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """返回本店铺所有产品名的标签文件映射，供上架库存列表显示「下载/上传」入口。"""
+    """返回本店铺所有编码的标签文件映射，供上架库存列表按编码显示「下载/上传」入口。"""
     r = await db.execute(select(ProductLabel).where(ProductLabel.store_id == store_id))
     out = {}
     for pl in r.scalars().all():
-        if (pl.product_name or "") and pl.filename:
-            out[pl.product_name] = {"original_name": pl.original_name or pl.filename, "has": True}
+        if (pl.code or "") and pl.filename:
+            out[pl.code] = {"original_name": pl.original_name or pl.filename, "has": True}
     return {"labels": out}
 
 
 @router.post("/inventory/labels/upload")
 async def upload_product_label(
-    product_name: str = Form(...),
+    code: str = Form(...),
+    product_name: str = Form(""),
     file: UploadFile = File(...),
     store_id: int = Query(1),
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """给某个产品名上传/覆盖标签文件：写新文件、更新记录、删旧物理文件。"""
-    name = (product_name or "").strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="产品名不能为空")
+    """给某个编码上传/覆盖标签文件：写新文件、更新记录、删旧物理文件。"""
+    key = (code or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="编码不能为空")
     if not (file and (file.filename or "").strip()):
         raise HTTPException(status_code=400, detail="请选择文件")
+    name = (product_name or "").strip()
     os.makedirs(INVENTORY_LABEL_DIR, exist_ok=True)
     orig = file.filename.strip()
     stored = f"{uuid.uuid4()}_{orig}"
     content = await file.read()
     with open(_safe_label_path(stored), "wb") as f:
         f.write(content)
-    r = await db.execute(select(ProductLabel).where(ProductLabel.store_id == store_id, ProductLabel.product_name == name))
+    r = await db.execute(select(ProductLabel).where(ProductLabel.store_id == store_id, ProductLabel.code == key))
     old = r.scalar_one_or_none()
     old_fn = old.filename if old else None
     if old:
         old.filename = stored
         old.original_name = orig
+        if name:
+            old.product_name = name
     else:
-        db.add(ProductLabel(store_id=store_id, product_name=name, filename=stored, original_name=orig))
+        db.add(ProductLabel(store_id=store_id, code=key, product_name=name or None, filename=stored, original_name=orig))
     await db.commit()
     if old_fn and old_fn != stored:
         fp = _safe_label_path(old_fn)
@@ -2414,13 +2418,13 @@ async def upload_product_label(
 
 
 @router.get("/inventory/labels/download")
-async def download_product_label(product_name: str = Query(...), store_id: int = Query(1), username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """下载某个产品名的标签文件。"""
-    name = (product_name or "").strip()
-    r = await db.execute(select(ProductLabel).where(ProductLabel.store_id == store_id, ProductLabel.product_name == name))
+async def download_product_label(code: str = Query(...), store_id: int = Query(1), username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """下载某个编码的标签文件。"""
+    key = (code or "").strip()
+    r = await db.execute(select(ProductLabel).where(ProductLabel.store_id == store_id, ProductLabel.code == key))
     pl = r.scalar_one_or_none()
     if not pl or not pl.filename:
-        raise HTTPException(status_code=404, detail="该产品暂无标签文件")
+        raise HTTPException(status_code=404, detail="该编码暂无标签文件")
     fp = _safe_label_path(pl.filename)
     if not os.path.exists(fp):
         raise HTTPException(status_code=404, detail="文件已丢失")
@@ -2429,13 +2433,13 @@ async def download_product_label(product_name: str = Query(...), store_id: int =
 
 
 @router.post("/inventory/labels/delete")
-async def delete_product_label(product_name: str = Query(...), store_id: int = Query(1), username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """删除某产品名的标签文件（删记录 + 物理文件），删除后可重新上传。"""
-    name = (product_name or "").strip()
-    r = await db.execute(select(ProductLabel).where(ProductLabel.store_id == store_id, ProductLabel.product_name == name))
+async def delete_product_label(code: str = Query(...), store_id: int = Query(1), username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """删除某编码的标签文件（删记录 + 物理文件），删除后可重新上传。"""
+    key = (code or "").strip()
+    r = await db.execute(select(ProductLabel).where(ProductLabel.store_id == store_id, ProductLabel.code == key))
     pl = r.scalar_one_or_none()
     if not pl:
-        raise HTTPException(status_code=404, detail="该产品暂无标签文件")
+        raise HTTPException(status_code=404, detail="该编码暂无标签文件")
     fn = pl.filename or ""
     await db.delete(pl)
     await db.commit()
@@ -2449,7 +2453,7 @@ async def delete_product_label(product_name: str = Query(...), store_id: int = Q
     return {"status": "success"}
 
 
-# ── 诚信标签（上架库存「产品名」列：上传 PDF，一页一个标签，打印一次作废一个）──
+# ── 诚信标签（上架库存「编码」列：上传 PDF，一页一个标签，打印一次作废一个）──
 HONESTY_LABEL_DIR = "/home/admin/wbtools/backend/uploads/honesty_labels/"
 HONESTY_MAX_SIZE = 100 * 1024 * 1024   # 100MB
 
@@ -2466,15 +2470,15 @@ def _pdf_page_count(path: str) -> int:
 
 @router.get("/inventory/honesty-labels")
 async def list_honesty_labels(store_id: int = Query(1), username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """返回本店铺各产品名的诚信标签用量：总数 / 已打印 / 剩余。"""
+    """返回本店铺各编码的诚信标签用量：总数 / 已打印 / 剩余。"""
     r = await db.execute(select(HonestyLabel).where(HonestyLabel.store_id == store_id))
     out = {}
     for hl in r.scalars().all():
-        if not (hl.product_name and hl.filename):
+        if not (hl.code and hl.filename):
             continue
         total = int(hl.total_pages or 0)
         used = int(hl.used_pages or 0)
-        out[hl.product_name] = {
+        out[hl.code] = {
             "has": True,
             "total": total,
             "used": used,
@@ -2486,16 +2490,18 @@ async def list_honesty_labels(store_id: int = Query(1), username: str = Depends(
 
 @router.post("/inventory/honesty-labels/upload")
 async def upload_honesty_label(
-    product_name: str = Form(...),
+    code: str = Form(...),
+    product_name: str = Form(""),
     file: UploadFile = File(...),
     store_id: int = Query(1),
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """上传/重新上传诚信标签 PDF：统计页数（=标签数），重置已打印计数，删除旧文件。"""
+    """上传/重新上传某编码的诚信标签 PDF：统计页数（=标签数），重置已打印计数，删除旧文件。"""
+    key = (code or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="编码不能为空")
     name = (product_name or "").strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="产品名不能为空")
     orig = (file.filename or "").strip()
     if not orig:
         raise HTTPException(status_code=400, detail="请选择 PDF 文件")
@@ -2529,7 +2535,7 @@ async def upload_honesty_label(
             pass
         raise HTTPException(status_code=400, detail="PDF 没有可打印的页面")
 
-    r = await db.execute(select(HonestyLabel).where(HonestyLabel.store_id == store_id, HonestyLabel.product_name == name))
+    r = await db.execute(select(HonestyLabel).where(HonestyLabel.store_id == store_id, HonestyLabel.code == key))
     row = r.scalar_one_or_none()
     old_fn = row.filename if row else None
     if row:
@@ -2537,8 +2543,10 @@ async def upload_honesty_label(
         row.original_name = orig
         row.total_pages = pages
         row.used_pages = 0
+        if name:
+            row.product_name = name
     else:
-        db.add(HonestyLabel(store_id=store_id, product_name=name, filename=stored,
+        db.add(HonestyLabel(store_id=store_id, code=key, product_name=name or None, filename=stored,
                             original_name=orig, total_pages=pages, used_pages=0))
     await db.commit()
     if old_fn and old_fn != stored:
@@ -2553,17 +2561,17 @@ async def upload_honesty_label(
 
 @router.get("/inventory/honesty-labels/print")
 async def print_honesty_label(
-    product_name: str = Query(...),
+    code: str = Query(...),
     store_id: int = Query(1),
     username: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """取下一张未使用的标签（第 used+1 页），渲染成 PNG 返回，并把该标签标记为已作废。"""
-    name = (product_name or "").strip()
-    r = await db.execute(select(HonestyLabel).where(HonestyLabel.store_id == store_id, HonestyLabel.product_name == name))
+    key = (code or "").strip()
+    r = await db.execute(select(HonestyLabel).where(HonestyLabel.store_id == store_id, HonestyLabel.code == key))
     row = r.scalar_one_or_none()
     if not row or not row.filename:
-        raise HTTPException(status_code=404, detail="该产品暂无诚信标签，请先上传 PDF")
+        raise HTTPException(status_code=404, detail="该编码暂无诚信标签，请先上传 PDF")
 
     total = int(row.total_pages or 0)
     used = int(row.used_pages or 0)
@@ -2609,13 +2617,13 @@ async def print_honesty_label(
 
 
 @router.post("/inventory/honesty-labels/delete")
-async def delete_honesty_label(product_name: str = Query(...), store_id: int = Query(1), username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """删除某产品名的诚信标签（删记录 + 物理文件），删除后可重新上传。"""
-    name = (product_name or "").strip()
-    r = await db.execute(select(HonestyLabel).where(HonestyLabel.store_id == store_id, HonestyLabel.product_name == name))
+async def delete_honesty_label(code: str = Query(...), store_id: int = Query(1), username: str = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """删除某编码的诚信标签（删记录 + 物理文件），删除后可重新上传。"""
+    key = (code or "").strip()
+    r = await db.execute(select(HonestyLabel).where(HonestyLabel.store_id == store_id, HonestyLabel.code == key))
     row = r.scalar_one_or_none()
     if not row:
-        raise HTTPException(status_code=404, detail="该产品暂无诚信标签")
+        raise HTTPException(status_code=404, detail="该编码暂无诚信标签")
     fn = row.filename or ""
     await db.delete(row)
     await db.commit()
