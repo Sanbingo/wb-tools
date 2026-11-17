@@ -98,8 +98,17 @@
     .inv-prod-zero { font-size: 11px; color: #cf1322; margin-top: 2px; }
     .inv-prod-defect { font-size: 11px; color: #d46b08; margin-top: 2px; }
     .inv-prod-sum { font-size: 11px; color: #666; margin-top: 2px; }
-    .inv-code-lbl { margin-top: 6px; display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .inv-code-honesty { margin-top: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    /* 操作列：标签/诚信标签图标 + 删除，强制一行 */
+    .inv-act-row { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; white-space: nowrap; }
+    .inv-op-icon { font-size: 15px; line-height: 1; cursor: pointer; user-select: none; opacity: .9; padding: 0 1px; }
+    .inv-op-icon:hover { opacity: 1; }
+    .inv-op-icon.ok { color: #389e0d; }
+    .inv-op-icon.hl { color: #722ed1; }
+    .inv-op-icon.up { color: #1677ff; }
+    .inv-op-cnt { font-size: 9px; color: #722ed1; font-weight: 700; margin-left: 1px; }
+    .inv-op-subdel { font-size: 11px; color: #ccc; cursor: pointer; line-height: 1; opacity: 0; transition: opacity .12s; }
+    .inv-table tr:hover .inv-op-subdel { opacity: 1; }
+    .inv-op-subdel:hover { color: #cf1322; }
     /* 款式库存汇总看板 */
     .style-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
     .style-tile { border: 1px solid #eef0f3; border-radius: 10px; padding: 12px 14px; background: #fafcff; }
@@ -872,7 +881,7 @@ function InventoryTab(props) {
                 h('th',{className:'inv-th',style:{width:170}},T.colQty),
                 h('th',{className:'inv-th',style:{width:110,textAlign:'center'}},T.colDefect),
                 h('th',{className:'inv-th'},T.remark),
-                h('th',{className:'inv-th',style:{width:56,textAlign:'right'}},T.colAction)
+                h('th',{className:'inv-th',style:{width:110,textAlign:'right'}},T.colAction)
               )
             ),
             h('tbody',null,
@@ -891,35 +900,27 @@ function InventoryTab(props) {
                       h('div',{className:'inv-prod-sum'}, T.sumLabel+' '+(prodTotal+prodDefect))
                     ));
                   }
-                  // 标签 / 诚信标签：按编码维度（每个编码各一份）
+                  // 标签 / 诚信标签图标（按编码维度，统一放到操作列）
                   var codeKey = (it.code || '').trim();
-                  var hasLbl = !!(codeKey && labels[codeKey] && labels[codeKey].has);
-                  var labelEl = codeKey ? h('div',{className:'inv-code-lbl'},
-                    hasLbl
-                      ? h('span',{style:{fontSize:12,color:'#389e0d',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3},title:T.labelDl,onClick:function(){ downloadLabel(codeKey); }},'⬇ '+T.labelDl)
-                      : h('label',{style:{fontSize:12,color:'#1677ff',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3},title:T.labelUploadTitle},
-                          '🏷 '+T.labelUpload,
-                          h('input',{type:'file',style:{display:'none'},onChange:function(e){ var f=(e.target.files&&e.target.files[0]); if(f){ uploadLabel(codeKey, k, f, function(err){ if(err) alert(err); }); } e.target.value=''; }})),
-                    hasLbl ? h('span',{style:{fontSize:13,color:'#cf1322',cursor:'pointer',fontWeight:700,lineHeight:1},title:T.labelDel,onClick:function(){ deleteLabel(codeKey); }},'✕') : null
-                  ) : null;
+                  var lbl = codeKey ? labels[codeKey] : null;
+                  var hasLbl = !!(lbl && lbl.has);
                   var hl = codeKey ? honesty[codeKey] : null;
                   var hlHas = !!(hl && hl.has);
                   var hlLeft = hlHas ? (hl.remaining || 0) : 0;
-                  var honestyEl = codeKey ? h('div',{className:'inv-code-honesty'},
-                    (hlHas && hlLeft > 0)
-                      ? h('span',{style:{fontSize:12,color:'#722ed1',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3},title:T.honestyPrint,onClick:function(){ printHonesty(codeKey); }},
-                          '🖨 '+T.honestyPrint+'（'+T.honestyRemain(hlLeft, hl.total)+'）')
-                      : h('label',{style:{fontSize:12,color:hlHas?'#cf1322':'#722ed1',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3},title:T.honestyUploadTitle},
-                          '🏷 '+(hlHas ? (T.honestyNone+'，'+T.honestyReup) : T.honestyUpload),
-                          h('input',{type:'file',accept:'.pdf,application/pdf',style:{display:'none'},onChange:function(e){ var f=(e.target.files&&e.target.files[0]); if(f){ uploadHonesty(codeKey, k, f, function(err, n){ alert(err ? err : T.honestyUpOk(n)); }); } e.target.value=''; }})),
-                    hlHas ? h('span',{style:{fontSize:13,color:'#cf1322',cursor:'pointer',fontWeight:700,lineHeight:1},title:T.honestyDel,onClick:function(){ deleteHonesty(codeKey); }},'✕') : null
-                  ) : null;
+                  var labelIcon = !codeKey ? null : (hasLbl
+                    ? h('span',{className:'inv-op-icon ok',title:T.labelDl+'（'+(lbl.original_name||'')+'）',onClick:function(){ downloadLabel(codeKey); }},'⬇')
+                    : h('label',{className:'inv-op-icon up',title:T.labelUploadTitle},
+                        '🏷',
+                        h('input',{type:'file',style:{display:'none'},onChange:function(e){ var f=(e.target.files&&e.target.files[0]); if(f){ uploadLabel(codeKey, k, f, function(err){ if(err) alert(err); }); } e.target.value=''; }})));
+                  var honestyIcon = !codeKey ? null : ((hlHas && hlLeft > 0)
+                    ? h('span',{className:'inv-op-icon hl',title:T.honestyPrint+'（'+T.honestyRemain(hlLeft, hl.total)+'）',onClick:function(){ printHonesty(codeKey); }},
+                        '🖨', h('sup',{className:'inv-op-cnt'}, hlLeft))
+                    : h('label',{className:'inv-op-icon '+(hlHas?'hl':'up'),title:hlHas ? (T.honestyNone+'，'+T.honestyReup) : T.honestyUploadTitle},
+                        '📄',
+                        h('input',{type:'file',accept:'.pdf,application/pdf',style:{display:'none'},onChange:function(e){ var f=(e.target.files&&e.target.files[0]); if(f){ uploadHonesty(codeKey, k, f, function(err, n){ alert(err ? err : T.honestyUpOk(n)); }); } e.target.value=''; }})));
                   cells.push(h('td',{key:'code',style:{fontFamily:'monospace',fontSize:14}},
-                    h('div',null,
-                      h('span',null, it.code),
-                      h('span',{className:'inv-add',title:T.replenishBtn,onClick:function(){ openReplenish(it); }},'+')),
-                    labelEl,
-                    honestyEl));
+                    h('span',null, it.code),
+                    h('span',{className:'inv-add',title:T.replenishBtn,onClick:function(){ openReplenish(it); }},'+')));
                   cells.push(h('td',{key:'qty'},
                     h('div',{className:'inv-qty-wrap'},
                       h('input',{key:it.id+'-'+it.quantity,className:'inv-qty-input',type:'number',min:0,defaultValue:it.quantity,
@@ -934,8 +935,14 @@ function InventoryTab(props) {
                         onBlur:function(e){saveDefect(it,e.target.value);},
                         onKeyDown:function(e){ if(e.key==='Enter'){ e.target.blur(); } }}))));
                   cells.push(h('td',{key:'rmk',style:{color:'#888',fontSize:13}}, it.remark || ''));
-                  cells.push(h('td',{key:'act',style:{textAlign:'right'}},
-                    h('span',{className:'inv-del',title:T.delTitle,onClick:function(){delItem(it);}},'✕')));
+                  cells.push(h('td',{key:'act'},
+                    h('div',{className:'inv-act-row'},
+                      labelIcon,
+                      hasLbl ? h('span',{className:'inv-op-subdel',title:T.labelDel,onClick:function(){ deleteLabel(codeKey); }},'✕') : null,
+                      honestyIcon,
+                      hlHas ? h('span',{className:'inv-op-subdel',title:T.honestyDel,onClick:function(){ deleteHonesty(codeKey); }},'✕') : null,
+                      h('span',{className:'inv-del',title:T.delTitle,onClick:function(){delItem(it);}},'✕')
+                    )));
                   return h('tr',{key:it.id,className:zero?'inv-zero':''}, cells);
                 });
               }))
