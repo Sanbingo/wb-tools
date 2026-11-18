@@ -109,6 +109,9 @@
     .inv-op-subdel { font-size: 11px; color: #ccc; cursor: pointer; line-height: 1; opacity: 0; transition: opacity .12s; }
     .inv-table tr:hover .inv-op-subdel { opacity: 1; }
     .inv-op-subdel:hover { color: #cf1322; }
+    /* 编码列：标签图标 + 编码 + 补货 */
+    .inv-code-wrap { display: inline-flex; align-items: center; gap: 5px; }
+    .inv-code-wrap .inv-op-icon { font-size: 13px; }
     /* 款式库存汇总看板 */
     .style-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
     .style-tile { border: 1px solid #eef0f3; border-radius: 10px; padding: 12px 14px; background: #fafcff; }
@@ -427,7 +430,7 @@ var INV_T = {
     zeroWarn: function(z){ return '　⚠️ '+z+' 个缺货'; },
     groupHead: function(name,n){ return '🏷️ '+name+'（'+n+' 个编码）'; },
     exportBtn: '📤 导出 Excel', exportErr: '导出失败，请重试',
-    colProduct: '产品名', colCode: '编码', colQty: '正品库存', colDefect: '次品库存', colAction: '操作', colTag: '标签', goodLabel: '正品', defectLabel: '次品', sumLabel: '总数',
+    colProduct: '产品名', colCode: '编码', colQty: '正品库存', colDefect: '次品库存', colAction: '操作', colTag: '诚信标签', goodLabel: '正品', defectLabel: '次品', sumLabel: '总数',
     labelDl: '标签', labelUpload: '上传标签', labelReup: '重新上传', labelUploadTitle: '上传 / 覆盖该编码的标签文件', addLabelFile: '标签文件（可选）', labelNeedName: '请先填写产品名', labelNeedCode: '请先填写编码，再上传标签', labelMultiWarn: '一批添加多个编码时无法共用标签文件，请在列表里按编码分别上传', labelUpOk: '标签已上传', labelUpErr: '上传失败，请重试',
     labelDel: '删除标签', labelDelConfirm: function(n){ return '确定删除「'+(n||'')+'」的标签文件吗？删除后可重新上传。'; },
     honestyUpload: '上传诚信标签', honestyUploadTitle: '上传诚信标签 PDF（一页 = 一个标签）', honestyPrint: '打印诚信标签',
@@ -475,7 +478,7 @@ var INV_T = {
     zeroWarn: function(z){ return '　⚠️ Нет в наличии: '+z; },
     groupHead: function(name,n){ return '🏷️ '+name+' (кодов: '+n+')'; },
     exportBtn: '📤 Экспорт в Excel', exportErr: 'Ошибка экспорта, попробуйте снова',
-    colProduct: 'Название', colCode: 'Код', colQty: 'Годный остаток', colDefect: 'Брак', colAction: 'Действие', colTag: 'Ярлыки', goodLabel: 'Годный', defectLabel: 'Брак', sumLabel: 'Всего',
+    colProduct: 'Название', colCode: 'Код', colQty: 'Годный остаток', colDefect: 'Брак', colAction: 'Действие', colTag: 'Этикетки ЧЗ', goodLabel: 'Годный', defectLabel: 'Брак', sumLabel: 'Всего',
     labelDl: 'Ярлык', labelUpload: 'Загрузить ярлык', labelReup: 'Заменить', labelUploadTitle: 'Загрузить / заменить файл ярлыка этого кода', addLabelFile: 'Файл ярлыка (необязательно)', labelNeedName: 'Сначала введите название товара', labelNeedCode: 'Сначала введите код товара', labelMultiWarn: 'Один файл ярлыка нельзя применить к нескольким кодам — загрузите ярлыки по кодам в списке', labelUpOk: 'Ярлык загружен', labelUpErr: 'Ошибка загрузки, повторите',
     labelDel: 'Удалить ярлык', labelDelConfirm: function(n){ return 'Удалить файл ярлыка «'+(n||'')+'»? После удаления можно загрузить заново.'; },
     honestyUpload: 'Загрузить этикетки ЧЗ', honestyUploadTitle: 'Загрузить PDF этикеток (1 страница = 1 этикетка)', honestyPrint: 'Печать этикетки ЧЗ',
@@ -880,7 +883,7 @@ function InventoryTab(props) {
                 h('th',{className:'inv-th'},T.colCode),
                 h('th',{className:'inv-th',style:{width:170}},T.colQty),
                 h('th',{className:'inv-th',style:{width:110,textAlign:'center'}},T.colDefect),
-                h('th',{className:'inv-th',style:{width:130}},T.colTag),
+                h('th',{className:'inv-th',style:{width:100}},T.colTag),
                 h('th',{className:'inv-th',style:{width:56,textAlign:'right'}},T.colAction)
               )
             ),
@@ -900,7 +903,7 @@ function InventoryTab(props) {
                       h('div',{className:'inv-prod-sum'}, T.sumLabel+' '+(prodTotal+prodDefect))
                     ));
                   }
-                  // 标签 / 诚信标签图标（按编码维度，统一放到操作列）
+                  // 标签图标（按编码维度，放在编码列编码前面）；诚信标签图标放「诚信标签」列
                   var codeKey = (it.code || '').trim();
                   var lbl = codeKey ? labels[codeKey] : null;
                   var hasLbl = !!(lbl && lbl.has);
@@ -919,8 +922,11 @@ function InventoryTab(props) {
                         '📄',
                         h('input',{type:'file',accept:'.pdf,application/pdf',style:{display:'none'},onChange:function(e){ var f=(e.target.files&&e.target.files[0]); if(f){ uploadHonesty(codeKey, k, f, function(err, n){ alert(err ? err : T.honestyUpOk(n)); }); } e.target.value=''; }})));
                   cells.push(h('td',{key:'code',style:{fontFamily:'monospace',fontSize:14}},
-                    h('span',null, it.code),
-                    h('span',{className:'inv-add',title:T.replenishBtn,onClick:function(){ openReplenish(it); }},'+')));
+                    h('span',{className:'inv-code-wrap'},
+                      labelIcon,
+                      hasLbl ? h('span',{className:'inv-op-subdel',title:T.labelDel,onClick:function(){ deleteLabel(codeKey); }},'✕') : null,
+                      h('span',null, it.code),
+                      h('span',{className:'inv-add',title:T.replenishBtn,onClick:function(){ openReplenish(it); }},'+'))));
                   cells.push(h('td',{key:'qty'},
                     h('div',{className:'inv-qty-wrap'},
                       h('input',{key:it.id+'-'+it.quantity,className:'inv-qty-input',type:'number',min:0,defaultValue:it.quantity,
@@ -936,8 +942,6 @@ function InventoryTab(props) {
                         onKeyDown:function(e){ if(e.key==='Enter'){ e.target.blur(); } }}))));
                   cells.push(h('td',{key:'tag'},
                     h('div',{className:'inv-op-row'},
-                      labelIcon,
-                      hasLbl ? h('span',{className:'inv-op-subdel',title:T.labelDel,onClick:function(){ deleteLabel(codeKey); }},'✕') : null,
                       honestyIcon,
                       hlHas ? h('span',{className:'inv-op-subdel',title:T.honestyDel,onClick:function(){ deleteHonesty(codeKey); }},'✕') : null
                     )));
