@@ -112,6 +112,17 @@
     /* 编码列：标签图标 + 编码 + 补货 */
     .inv-code-wrap { display: inline-flex; align-items: center; gap: 5px; }
     .inv-code-wrap .inv-op-icon { font-size: 13px; }
+    /* 悬浮提示：显示已上传的文件名（.tip-right 用于靠右的列，气泡向左展开防止溢出） */
+    .inv-op-icon[data-tip] { position: relative; }
+    .inv-op-icon[data-tip]:hover::after {
+      content: attr(data-tip);
+      position: absolute; left: 0; bottom: 155%;
+      background: rgba(0,0,0,.85); color: #fff; font-size: 12px; font-weight: 400;
+      line-height: 1.5; padding: 4px 9px; border-radius: 5px;
+      white-space: normal; width: max-content; max-width: 320px; word-break: break-all; text-align: left;
+      z-index: 999; pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,.2);
+    }
+    .inv-op-icon.tip-right[data-tip]:hover::after { left: auto; right: 0; }
     /* 款式库存汇总看板 */
     .style-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
     .style-tile { border: 1px solid #eef0f3; border-radius: 10px; padding: 12px 14px; background: #fafcff; }
@@ -433,6 +444,7 @@ var INV_T = {
     colProduct: '产品名', colCode: '编码', colQty: '正品库存', colDefect: '次品库存', colAction: '操作', colTag: '诚信标签', goodLabel: '正品', defectLabel: '次品', sumLabel: '总数',
     labelDl: '标签', labelUpload: '上传标签', labelReup: '重新上传', labelUploadTitle: '上传 / 覆盖该编码的标签文件', addLabelFile: '标签文件（可选）', labelNeedName: '请先填写产品名', labelNeedCode: '请先填写编码，再上传标签', labelMultiWarn: '一批添加多个编码时无法共用标签文件，请在列表里按编码分别上传', labelUpOk: '标签已上传', labelUpErr: '上传失败，请重试',
     labelDel: '删除标签', labelDelConfirm: function(n){ return '确定删除「'+(n||'')+'」的标签文件吗？删除后可重新上传。'; },
+    tipLabelFile: '标签文件：', tipHonestyFile: '诚信标签文件：', tipClickDl: '点击下载', tipClickPrint: '点击打印',
     honestyUpload: '上传诚信标签', honestyUploadTitle: '上传诚信标签 PDF（一页 = 一个标签）', honestyPrint: '打印诚信标签',
     honestyRemain: function(r,t){ return '剩余 '+r+'/'+t; }, honestyNone: '标签已用完', honestyReup: '重新上传诚信标签',
     honestyUpOk: function(n){ return '✅ 诚信标签已上传，共 '+n+' 个'; }, honestyNeedPdf: '请选择 PDF 文件', honestyPdfOnly: '只支持 PDF 文件',
@@ -481,6 +493,7 @@ var INV_T = {
     colProduct: 'Название', colCode: 'Код', colQty: 'Годный остаток', colDefect: 'Брак', colAction: 'Действие', colTag: 'Этикетки ЧЗ', goodLabel: 'Годный', defectLabel: 'Брак', sumLabel: 'Всего',
     labelDl: 'Ярлык', labelUpload: 'Загрузить ярлык', labelReup: 'Заменить', labelUploadTitle: 'Загрузить / заменить файл ярлыка этого кода', addLabelFile: 'Файл ярлыка (необязательно)', labelNeedName: 'Сначала введите название товара', labelNeedCode: 'Сначала введите код товара', labelMultiWarn: 'Один файл ярлыка нельзя применить к нескольким кодам — загрузите ярлыки по кодам в списке', labelUpOk: 'Ярлык загружен', labelUpErr: 'Ошибка загрузки, повторите',
     labelDel: 'Удалить ярлык', labelDelConfirm: function(n){ return 'Удалить файл ярлыка «'+(n||'')+'»? После удаления можно загрузить заново.'; },
+    tipLabelFile: 'Файл ярлыка: ', tipHonestyFile: 'Файл этикеток ЧЗ: ', tipClickDl: 'нажмите, чтобы скачать', tipClickPrint: 'нажмите, чтобы напечатать',
     honestyUpload: 'Загрузить этикетки ЧЗ', honestyUploadTitle: 'Загрузить PDF этикеток (1 страница = 1 этикетка)', honestyPrint: 'Печать этикетки ЧЗ',
     honestyRemain: function(r,t){ return 'осталось '+r+'/'+t; }, honestyNone: 'Этикетки закончились', honestyReup: 'Загрузить новые этикетки',
     honestyUpOk: function(n){ return '✅ Этикетки загружены, всего '+n; }, honestyNeedPdf: 'Выберите PDF файл', honestyPdfOnly: 'Только PDF файлы',
@@ -911,14 +924,14 @@ function InventoryTab(props) {
                   var hlHas = !!(hl && hl.has);
                   var hlLeft = hlHas ? (hl.remaining || 0) : 0;
                   var labelIcon = !codeKey ? null : (hasLbl
-                    ? h('span',{className:'inv-op-icon ok',title:T.labelDl+'（'+(lbl.original_name||'')+'）',onClick:function(){ downloadLabel(codeKey); }},'⬇')
-                    : h('label',{className:'inv-op-icon up',title:T.labelUploadTitle},
+                    ? h('span',{className:'inv-op-icon ok','data-tip':T.tipLabelFile+(lbl.original_name||'')+'（'+T.tipClickDl+'）',onClick:function(){ downloadLabel(codeKey); }},'⬇')
+                    : h('label',{className:'inv-op-icon up','data-tip':T.labelUploadTitle},
                         '🏷',
                         h('input',{type:'file',style:{display:'none'},onChange:function(e){ var f=(e.target.files&&e.target.files[0]); if(f){ uploadLabel(codeKey, k, f, function(err){ if(err) alert(err); }); } e.target.value=''; }})));
                   var honestyIcon = !codeKey ? null : ((hlHas && hlLeft > 0)
-                    ? h('span',{className:'inv-op-icon hl',title:T.honestyPrint+'（'+T.honestyRemain(hlLeft, hl.total)+'）',onClick:function(){ printHonesty(codeKey); }},
+                    ? h('span',{className:'inv-op-icon hl tip-right','data-tip':T.tipHonestyFile+(hl.original_name||'')+'（'+T.honestyRemain(hlLeft, hl.total)+'，'+T.tipClickPrint+'）',onClick:function(){ printHonesty(codeKey); }},
                         '🖨', h('sup',{className:'inv-op-cnt'}, hlLeft))
-                    : h('label',{className:'inv-op-icon '+(hlHas?'hl':'up'),title:hlHas ? (T.honestyNone+'，'+T.honestyReup) : T.honestyUploadTitle},
+                    : h('label',{className:'inv-op-icon tip-right '+(hlHas?'hl':'up'),'data-tip':hlHas ? (T.tipHonestyFile+(hl.original_name||'')+'（'+T.honestyNone+'，'+T.honestyReup+'）') : T.honestyUploadTitle},
                         '📄',
                         h('input',{type:'file',accept:'.pdf,application/pdf',style:{display:'none'},onChange:function(e){ var f=(e.target.files&&e.target.files[0]); if(f){ uploadHonesty(codeKey, k, f, function(err, n){ alert(err ? err : T.honestyUpOk(n)); }); } e.target.value=''; }})));
                   cells.push(h('td',{key:'code',style:{fontFamily:'monospace',fontSize:14}},
