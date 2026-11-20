@@ -172,6 +172,9 @@
     .log-chip { padding: 3px 10px; border-radius: 12px; background: #f0f5ff; color: #1677ff; font-size: 12px; cursor: pointer; border: 1px solid #d6e4ff; }
     .log-chip.active { background: #1677ff; color: #fff; border-color: #1677ff; }
     .log-chip:hover { border-color: #1677ff; }
+    .log-chip-toggle { padding: 3px 10px; border-radius: 12px; background: #fff; color: #1677ff; font-size: 12px; cursor: pointer; border: 1px dashed #91caff; white-space: nowrap; }
+    .log-chip-toggle:hover { background: #f0f5ff; border-color: #1677ff; }
+    .log-datechips.more-dates { max-height: 148px; overflow-y: auto; padding-right: 4px; }
     .log-type { font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 10px; white-space: nowrap; }
     .log-type.ship { background: #fff1f0; color: #cf1322; }
     .log-type.ret { background: #f6ffed; color: #389e0d; }
@@ -1962,6 +1965,7 @@ var LOG_T = {
     title: '📋 操作日志', sub: '记录每天的发货 / 退货 / 调拨操作，按天统计与查询',
     dateLabel: '日期', todayBtn: '今天', prevBtn: '‹ 前一天', nextBtn: '后一天 ›', refreshBtn: '刷新',
     datesHint: '有记录的日期：', noDates: '暂无历史记录',
+    expandChips: function(n){ return '展开全部 '+n+' 项 ▾'; }, collapseChips: '收起 ▴',
     ship: '发货', rtn: '退货', shipDefect: '发货·次品', transfer: '调拨', outbound: '送仓出库',
     sShip: '发货件数', sRet: '退货件数', sTransfer: '调拨件数', sOutbound: '出库件数', sNet: '净变动', sOps: '操作笔数',
     codeTitle: '📊 按编码汇总', detailTitle: '📝 操作明细（按时间顺序）',
@@ -1977,6 +1981,7 @@ var LOG_T = {
     title: '📋 Журнал операций', sub: 'Отгрузки, возвраты и перемещения по дням со статистикой',
     dateLabel: 'Дата', todayBtn: 'Сегодня', prevBtn: '‹ Пред. день', nextBtn: 'След. день ›', refreshBtn: 'Обновить',
     datesHint: 'Даты с записями: ', noDates: 'Нет истории',
+    expandChips: function(n){ return 'Показать все '+n+' ▾'; }, collapseChips: 'Свернуть ▴',
     ship: 'Отгрузка', rtn: 'Возврат', shipDefect: 'Отгрузка·брак', transfer: 'Перемещение', outbound: 'Отгрузка поставки',
     sShip: 'Отгружено', sRet: 'Возвратов', sTransfer: 'Перемещено', sOutbound: 'Отгружено (план)', sNet: 'Итог', sOps: 'Операций',
     codeTitle: '📊 Сводка по кодам', detailTitle: '📝 Детали операций (по времени)',
@@ -2006,6 +2011,7 @@ function LogTab(props) {
   var S2 = useState(null), data = S2[0], setData = S2[1];
   var S3 = useState(true), loading = S3[0], setLoading = S3[1];
   var S4 = useState(''), err = S4[0], setErr = S4[1];
+  var S5 = useState(false), chipsOpen = S5[0], setChipsOpen = S5[1];
 
   function load(d) {
     setLoading(true); setErr('');
@@ -2071,12 +2077,20 @@ function LogTab(props) {
         h('div',{className:'log-stat net'}, h('div',{className:'v'},netTxt), h('div',{className:'l'},T.sNet)),
         h('div',{className:'log-stat'}, h('div',{className:'v'},sum.total), h('div',{className:'l'},T.sOps))
       ),
-      h('div',{className:'log-datechips'},
+      h('div',{className:'log-datechips'+(chipsOpen?' more-dates':''),style:{marginTop:12}},
         h('span',{style:{fontSize:12,color:'#999'}},T.datesHint),
         dates.length===0 ? h('span',{style:{fontSize:12,color:'#bbb'}},T.noDates)
-          : dates.map(function(d){
-              return h('span',{key:d,className:'log-chip'+(d===date?' active':''),onClick:function(){go(d);}},d);
-            })
+          : (function(){
+              var LIMIT = 12;
+              var shown = chipsOpen ? dates : dates.slice(0, LIMIT);
+              // 折叠时若当前选中日期不在前 N 个里，也一并显示，避免看不到当前所在日期
+              if (!chipsOpen && shown.indexOf(date) < 0 && dates.indexOf(date) >= 0) shown = shown.concat([date]);
+              return shown.map(function(d){
+                return h('span',{key:d,className:'log-chip'+(d===date?' active':''),onClick:function(){go(d);}},d);
+              });
+            })(),
+        dates.length > 12 ? h('span',{className:'log-chip-toggle',onClick:function(){ setChipsOpen(!chipsOpen); }},
+          chipsOpen ? T.collapseChips : T.expandChips(dates.length)) : null
       )
     ),
     // 按编码汇总
