@@ -3726,31 +3726,42 @@ async def delivery_outbound(
             q = int(it.quantity or 0)
             if q <= 0:
                 continue
+            model = it.product_model or ""
             bid = getattr(it, "box_item_id", None)
             bi = await _get_bi(bid) if bid else None
-            if bi is not None and (bi.product_model or "") == (it.product_model or ""):
-                cur = _cur(bi)
-                if cur < q:
-                    shortages.append({"box_code": getattr(it, "box_code", None) or b.box_code or "",
-                                      "product_model": it.product_model or "", "available": cur, "requested": q})
-                else:
-                    _remaining[bi.id] = cur - q
+            # 候选库存行：优先「计划指定的那一包」；它不够（或已用完为 0）时，
+            # 自动改扣同一来源箱内同型号的其他包（箱内拆包场景）。
+            candidates = []
+            if bi is not None and (bi.product_model or "") == model:
+                candidates.append(bi)
+                rsib = await db.execute(
+                    select(BoxItem).where(
+                        BoxItem.box_id == bi.box_id,
+                        BoxItem.product_model == model,
+                        BoxItem.id != bi.id,
+                    ).order_by(BoxItem.id)
+                )
+                for sib in rsib.scalars().all():
+                    _bi_cache.setdefault(sib.id, sib)
+                    candidates.append(sib)
+            if not candidates:
+                candidates = await _fallback_matches(b, it)
+
+            total_cur = sum(_cur(c) for c in candidates)
+            if total_cur < q:
+                shortages.append({"box_code": getattr(it, "box_code", None) or b.box_code or "",
+                                  "product_model": model, "available": total_cur, "requested": q})
             else:
-                matches = await _fallback_matches(b, it)
-                total_cur = sum(_cur(bi2) for bi2 in matches)
-                if total_cur < q:
-                    shortages.append({"box_code": getattr(it, "box_code", None) or b.box_code or "",
-                                      "product_model": it.product_model or "", "available": total_cur, "requested": q})
-                else:
-                    need = q
-                    for bi2 in matches:
-                        if need <= 0:
-                            break
-                        cur = _cur(bi2)
-                        take = min(cur, need)
-                        if take > 0:
-                            _remaining[bi2.id] = cur - take
-                            need -= take
+                # 有库存的先扣（FIFO：指定包 → 同箱其他包）
+                need = q
+                for c in candidates:
+                    if need <= 0:
+                        break
+                    cur = _cur(c)
+                    take = min(cur, need)
+                    if take > 0:
+                        _remaining[c.id] = cur - take
+                        need -= take
 
     if shortages:
         detail_lines = [
